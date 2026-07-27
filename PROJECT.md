@@ -1,7 +1,7 @@
 
-# PROJECT.md
+## PROJECT.md
 
-## Project Context
+### Project Context
 
 This document describes the purpose, current status and technical context of NFC Hub.
 
@@ -11,13 +11,13 @@ Before modifying the repository, read this document and `AGENT.md` completely.
 
 ---
 
-## Overview
+### Overview
 
-NHF Hub is a web application for managing reusable NFC tags.
+NFC Hub is a web application for managing reusable NFC tags.
 
-Each physical tag stores a permanent public URL. The owner can change the contect or action associated with that URL from the application without rewriting the NFC tag.
+Each physical tag stores a permanent public URL. The owner can change the content or action associated with that URL through the application without rewriting the NFC tag.
 
-A tag may initially redirect to a configurable external URL, Future versions may support additional content types and actions.
+A tag may initially redirect to a configurable external URL. Future versions may support additional content types and actions.
 
 Example stored on the NFC tag:
 
@@ -25,7 +25,7 @@ Example stored on the NFC tag:
 https://example.com/t/8QK4M7PX
 ```
 
-When the tag is scanned, NFC Hub resolves the public token and perorms the currently configured behavior.
+When the tag is scanned, NFC Hub resolves the public token and performs the currently configured behavior.
 
 The project combines:
 
@@ -39,7 +39,7 @@ The project combines:
 
 ---
 
-## Goal
+### Goal
 
 The main goal is to create a simple and secure platform where users can:
 
@@ -47,12 +47,12 @@ The main goal is to create a simple and secure platform where users can:
 2. Register an NFC tag in their account.
 3. Associate the tag with a configurable destination.
 4. Write the permanent public URL to a physical NFC tag.
-5. Scan the tag from Androind or iPhone.
+5. Scan the tag from Android or iPhone.
 6. Change its destination later without rewriting it.
 7. Activate or deactivate the tag.
 8. Manage only the tags they own.
 
-The project must demostrate a clear separation between:
+The project must demonstrate a clear separation between:
 
 - The physical NFC tag.
 - The permanent public URL stored on it.
@@ -63,7 +63,7 @@ Scanning or copying a public NFC URL must never grant management access or prove
 
 ---
 
-## MVP Scope
+### MVP Scope
 
 The first usable version should include:
 
@@ -90,11 +90,11 @@ Redirect to an external HTTPS URL
 ```
 
 The MVP does not require direct NFC writing from the web application. During the initial development phase, tags will be written using
-a Flipper Zero with Momemtum firmware.
+a Flipper Zero with Momentum firmware.
 
 ---
 
-## Out of Scope for the Initial Version
+### Out of Scope for the Initial Version
 
 The following features must not be implemented unless explicitly requested:
 
@@ -106,7 +106,7 @@ The following features must not be implemented unless explicitly requested:
 - Email verification.
 - Password recovery by email.
 - Ownership transfer.
-- Team or organization account.
+- Team or organization accounts.
 - Paid plans or subscriptions.
 - QR code generation.
 - Advanced analytics.
@@ -128,12 +128,12 @@ These may be evaluated in later versions after the core workflow is stable and t
 
 ---
 
-## Current Status
+### Current Status
 
 Current project status:
 
 ```text
-Planning
+Early development
 ```
 
 Current version:
@@ -151,16 +151,20 @@ feature/project-definition
 The repository currently contains:
 
 - Initial project structure.
-- Basic FastAPI template.
+- Minimal FastAPI application in `src/nfc_hub`.
+- Health endpoint available at `GET /health`.
+- Initial automated tests using pytest and FastAPI's test client.
 - AI development guidelines.
-- Project definition.
-- Initial documentation templates.
+- Detailed project definition.
+- Initial user documentation.
 
-No NFC Hub business functionality has been implemented yet.
+The FastAPI application and health endpoint have been validated successfully.
+
+No NFC Hub business functionality has been implemented yet. Authentication, persistence, tag management and public tag resolution remain planned.
 
 ---
 
-## Tech Stack
+### Tech Stack
 
 Backend:
 - Python 3.10 or later.
@@ -202,7 +206,7 @@ Tags are initially written using NFC Maker on the Flipper Zero.
 
 ---
 
-## Domain Model
+### Domain Model
 
 The initial domain is expected to include the following concepts.
 
@@ -226,7 +230,7 @@ Expected responsibilities:
 - Record creation and update timestamps.
 
 The public token must:
-- be generated using a cryptographically secure source.
+- Be generated using a cryptographically secure source.
 - Be non-sequential.
 - Be difficult to guess.
 - Not expose the database identifier.
@@ -243,7 +247,7 @@ A scan event model may be introduced in a later version to record limited, priva
 
 ---
 
-## Core Workflow
+### Core Workflow
 
 The intended user workflow is:
 
@@ -262,7 +266,7 @@ If a tag is inactive or the token does not exist, the application must show an u
 
 ---
 
-## Public URL Design
+### Public URL Design
 
 The expected public route format is:
 
@@ -294,7 +298,7 @@ The public route must not:
 
 ---
 
-## Security Model
+### Security Model
 
 The security model is based opn authenticated accounts and server-side authorization.
 
@@ -322,11 +326,11 @@ The application must protect against:
 The authentication mechanism must be selected and documented before implementation. The initial application should prefer a conventional
 server-side approach suitable for a server-rendered web interface.
 
-Do not implement authentication until the chosen session strategy, password hasing library and CSRF requirements have been reviewed.
+Do not implement authentication until the chosen session strategy, password hashing library and CSRF requirements have been reviewed.
 
 ---
 
-## NFC Compatibility
+### NFC Compatibility
 
 The initial physical tags are:
 
@@ -337,12 +341,12 @@ NFC Forum Type 2
 NDEF formatted
 ```
 
-The tag store only the permanent NFC Hub URL.
+The tag stores only the permanent NFC Hub URL.
 
 The application must keep public URLs short enough to fit comfortably in the available tag memory.
 
 Validated laboratory workflow:
-1. Read a blanc NTAG215 using the Flipper Zero.
+1. Read a blank NTAG215 using the Flipper Zero.
 2. Create an HTTPS NDEF record using NFC Maker.
 3. Write the record to the NTAG215.
 4. Read the physical tag again to verify its contents.
@@ -351,20 +355,20 @@ Validated laboratory workflow:
 
 Scanning guidance:
 - On iPhone, bring the top edge of the device close to the tag.
-- On Android, bring the rear NFC antenna are close to the tag.
+- On Android, bring the rear NFC antenna area close to the tag.
 - The exact Android antenna position varies by model.
 
 The Flipper Zero is a development and testing tool. End users must not be permanently required to own one in the long-term product vision.
 
 ---
 
-## Architecture
+### Architecture
 
 The application will begin as a modular monolith.
 
 A single FastAPI application will contain:
 - Public HTTP routes.
-- Authentucated management routes.
+- Authenticated management routes.
 - Server-rendered pages.
 - Business logic.
 - Database access.
@@ -389,7 +393,7 @@ Directories and modules must only be created when required by an implemented fea
 
 ---
 
-## Main Responsibilities
+### Main Responsibilities
 
 `main.py`
 - Create and configure the FastAPI application.
@@ -399,7 +403,7 @@ Directories and modules must only be created when required by an implemented fea
 
 `api/`
 - Define public and authenticated routes.
-- Handle HTTP-specific validation and resonses.
+- Handle HTTP-specific validation and responses.
 - Delegate non-trivial business logic.
 
 `core/`
@@ -428,7 +432,7 @@ Directories and modules must only be created when required by an implemented fea
 
 ---
 
-## Main Commands
+### Main Commands
 
 Commands must be executed from the repository root.
 
@@ -455,7 +459,7 @@ Expected future command:
 python3 -m pip install -e .
 ```
 
-Do not claim this command is available until `pyproject.toml` or equivalent packaging configuration exist.
+Do not claim this command is available until `pyproject.toml` or equivalent packaging configuration exists.
 
 Run tests:
 ```text
@@ -481,7 +485,7 @@ Commands must be updated if the application entry point or packaging configurati
 
 ---
 
-## Development Notes
+### Development Notes
 
 General Development
 - Use small, focused increments.
@@ -494,7 +498,7 @@ General Development
 
 Data Storage
 - SQLite is intended for initial local development.
-- PostreSQL is planned for later deployment.
+- PostgreSQL is planned for later deployment.
 - Database schema changes must use Alembic once migrations are configured.
 - `create_all()` must not replace migrations after Alembic is introduced.
 
@@ -518,11 +522,11 @@ External URLs
 
 Privacy
 - The initial version should collect only the data required for account and tag management.
-- Advanced scan tracking, fingerprint or precise location collection is not part of the MVP.
+- Advanced scan tracking, fingerprinting or precise location collection is not part of the MVP.
 
 ---
 
-## Increment Development Plan
+### Incremental Development Plan
 
 The project should be developed through small increments.
 
@@ -531,7 +535,7 @@ Suggested order:
 2. Add packaging and test infrastructure.
 3. Add application configuration.
 4. Introduce SQLAlchemy and Alembic.
-5. Create the user persistence. model.
+5. Create the user persistence model.
 6. Decide and implement authentication.
 7. Create the tag persistence model.
 8. Generate secure public tag tokens.
@@ -539,7 +543,7 @@ Suggested order:
 10. Add the public tag resolution route.
 11. Add destination editing.
 12. Add tag activation and deactivation.
-13. Add the server-rendered management interface-
+13. Add the server-rendered management interface.
 14. Add NFC writing instructions.
 15. Prepare the first usable release.
 
@@ -549,15 +553,12 @@ Each increment must be reviewed before starting the next one.
 
 ---
 
-## Roadmap
+### Roadmap
 
 Planned:
-- Validate the initial FastAPI template.
-- Add a basic health endpoint.
-- Add initial automated tests.
 - Add project packaging configuration.
 - Configure application settings.
-- Instroduce SQLAlchemy.
+- Introduce SQLAlchemy.
 - Configure Alembic.
 - Implement user persistence.
 - Define the authentication and session strategy.
@@ -566,21 +567,23 @@ Planned:
 - Generate permanent public tag URLs.
 - Implement configurable HTTPS redirects.
 - Implement tag activation and deactivation.
-- Add a model-first management interface.
+- Add a mobile-first management interface.
 - Document the Flipper Zero writing workflow.
 - Test the complete workflow with physical NTAG215 tags.
-- Verify scanning on Android and iPhone.
 
 In Progress:
-- Define project scope and development rules.
-- Complete the initial project documentation.
+- Complete the initial test and packaging infrastructure.
 
 Completed:
 - Generate the initial project structure.
 - Configure the repository with `main` and `develop`.
 - Create the `feature/project-definition` branch.
+- Define the project scope and development rules.
 - Normalize the Python package as `src/nfc_hub`.
 - Correct the test package filename.
+- Create and validate the minimal FastAPI application.
+- Add the `GET /health` endpoint.
+- Add initial automated tests.
 - Confirm NTAG215 hardware specifications.
 - Write an HTTPS NDEF record using Flipper Zero and Momentum.
 - Validate physical tag scanning on Android.
@@ -588,7 +591,7 @@ Completed:
 
 ---
 
-## Future Possibilities
+### Future Possibilities
 
 The following ideas may be considered after the MVP is stable:
 - Multiple destination or action types.
@@ -613,39 +616,41 @@ These are possibilities, not current requirements.
 
 ---
 
-## Known Issues
+### Known Issues
 
 - The authentication and session strategy has not been selected yet.
 - The final public token length and format have not been selected yet.
 - Project packaging metadata has not been added yet.
 - Database persistence has not been implemented yet.
-- The generated FastAPI template has not been validated as part of NFC Hub.
 - Direct NFC writing from the application is not supported.
 - Physical tags currently require an external writing tool.
 - NFC antenna position varies between mobile devices.
 
 ---
 
-## Release Notes Context
+### Release Notes Context
 
 Important context for the future v0.1.0 release:
 - NFC Hub began as a reusable NFC tag management project.
 - The initial hardware target is NTAG215.
-- Physical writing was validated using Flipper Zero with Momemtum firmware.
-- The same NDEF URL was succesfully scanned using Android and iPhone.
-- The initial application architechture is a FastAPI modular monolith.
+- Physical writing was validated using Flipper Zero with Momentum firmware.
+- The same NDEF URL was successfully scanned using Android and iPhone.
+- The initial application architecture is a FastAPI modular monolith.
 - The first supported behavior will be configurable HTTPS redirection.
-- Security is based on authenticated ownership not NFC UID or URL secrecy.
+- Security is based on authenticated ownership, not NFC UID or URL secrecy.
 
 Until the release is prepared, implementation changes must be recorded under:
-`## [Unreleased]` in CHANGELOG.md.
+```text
+### [Unreleased]
+```
+in `CHANGELOG.md`.
 
 ---
 
-## Notes for Future Agents
+### Notes for Future Agents
 
 Before making changes:
-1. Read `AGENTS.md`.
+1. Read `AGENT.md`.
 2. Read this file completely.
 3. Inspect the current repository structure.
 4. Check the current branch and Git status.
@@ -654,7 +659,7 @@ Before making changes:
 7. Propose one small, coherent increment.
 8. Explain architectural or security implications.
 9. Wait for approval when the requested scope is ambiguous.
-10.Run and report the relevant tests after making changes.
+10. Run and report the relevant tests after making changes.
 
 Important restrictions:
 - Do not implement the entire MVP in one task.
