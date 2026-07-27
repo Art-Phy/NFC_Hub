@@ -50,7 +50,7 @@ source .venv/bin/activate
 ```
 
 Instala dependencias
-bash```
+```bash
 python3 -m pip install -r requirements.txt
 ```
 
