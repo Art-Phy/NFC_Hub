@@ -13,6 +13,7 @@ authors = [
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
+    "pydantic-settings",
 ]
 
 [project.urls]
