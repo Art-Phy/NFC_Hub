@@ -1,3 +1,8 @@
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Web_API-009688)
+![Tests](https://img.shields.io/badge/Tests-2_Passing-success)
+![Version](https://img.shields.io/badge/Version-v0.2.0-orange)
+![Status](https://img.shields.io/badge/Status-Early_Development-yellow)
 
 ## NFC Hub
 
@@ -17,7 +22,10 @@ La aplicación incluye actualmente:
 - Endpoint de comprobación de estado `GET /health`.
 - Documentación interactiva de FastAPI.
 - Pruebas automatizadas con pytest.
-- Estructura inicial basada en `src/`.
+- Estructura de paquete basada en `src/`.
+- Configuración del proyecto mediante `pyproject.toml`.
+- Instalación editable con dependencias de desarrollo y testing.
+- Ejecución de la aplicación y los tests sin configurar manualmente `PYTHONPATH`.
 
 Respuesta del endpoint de estado:
 
@@ -26,8 +34,9 @@ Respuesta del endpoint de estado:
   "status": "ok"
 }
 ```
+---
 
-###Requisitos
+### Requisitos
 
 - Python 3.10 o superior
 - pip
@@ -38,48 +47,60 @@ Respuesta del endpoint de estado:
 ### Instalación
 
 Clona el repositorio y entra en el directorio del proyecto:
+
 ```bash
-git clone <URL_REPOSITORIO>
+git clone https://github.com/Art-Phy/NFC_Hub
 cd NFC_Hub
 ```
 
-Crea y activa un entorno virtual
+Crea y activa un entorno virtual:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Instala dependencias
+Instala el proyecto en modo editable junto con las dependencias de desarrollo y testing:
+
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+El archivo `requirements.txt` instala el proyecto mediante la configuración definida en `pyproject.toml`.
+
+El modo editable permite que los cambios realizados en `src/nfc_hub` estén disponibles inmediatamente sin tener que reinstalar el proyecto.
 
 ---
 
 ### Uso
 
-Ejecuta la apliación desde la raíz del repositorio
+Ejecuta la aplicación desde la raíz del repositorio:
+
 ```bash
-PYTHONPATH=src uvicorn nfc_hub.main:app --reload
+uvicorn nfc_hub.main:app --reload
 ```
 
-La aplicación estará disponible en `http://127.0.0.1:8000`
+La aplicación estará disponible en `http://127.0.0.1:8000`.
 
-Comprueba su estado mendiante `http://127.0.0.1:8000/health`
+Comprueba su estado mediante `http://127.0.0.1:8000/health`.
 
-La documentación interactiva de FastAPI está disponible en `http://127.0.0.1:8000/docs`
+La documentación interactiva de FastAPI está disponible en `http://127.0.0.1:8000/docs`.
 
 ---
 
 ### Testing
 
-Ejecuta la suite completa desde la raíz del repositorio
+Ejecuta la suite completa desde la raíz del repositorio:
+
 ```bash
-PYTHONPATH=src python3 -m pytest -v
+python3 -m pytest -v
 ```
 
+La configuración de pytest se encuentra centralizada en `pyproject.toml`. Gracias a la instalación editable del proyecto, los tests pueden importar el paquete `nfc_hub` sin configurar manualmente `PYTHONPATH`.
+
 Los tests verifican:
-- El código de estado HTTP del endpoint **/health**.
+
+- El código de estado HTTP del endpoint `/health`.
 - La respuesta JSON exacta del endpoint.
 
 ---
