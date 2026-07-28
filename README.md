@@ -1,3 +1,8 @@
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Web_API-009688)
+![Tests](https://img.shields.io/badge/Tests-2_Passing-success)
+![Version](https://img.shields.io/badge/Version-v0.2.0-orange)
+![Status](https://img.shields.io/badge/Status-Early_Development-yellow)
 
 ## NFC Hub
 
@@ -17,7 +22,10 @@ La aplicación incluye actualmente:
 - Endpoint de comprobación de estado `GET /health`.
 - Documentación interactiva de FastAPI.
 - Pruebas automatizadas con pytest.
-- Estructura inicial basada en `src/`.
+- Estructura de paquete basada en `src/`.
+- Configuración del proyecto mediante `pyproject.toml`.
+- Instalación editable con dependencias de desarrollo y testing.
+- Ejecución de la aplicación y los tests sin configurar manualmente `PYTHONPATH`.
 
 Respuesta del endpoint de estado:
 
@@ -26,8 +34,9 @@ Respuesta del endpoint de estado:
   "status": "ok"
 }
 ```
+---
 
-###Requisitos
+### Requisitos
 
 - Python 3.10 o superior
 - pip
