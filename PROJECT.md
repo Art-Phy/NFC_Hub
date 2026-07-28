@@ -85,7 +85,7 @@ The first usable version should include:
 
 The initial behavior will be:
 
-text```
+```text
 Redirect to an external HTTPS URL
 ```
 
@@ -145,7 +145,7 @@ v0.1.0
 Current branch:
 
 ```text
-feature/project-definition
+feature/project-packaging
 ```
 
 The repository currently contains:
@@ -154,11 +154,19 @@ The repository currently contains:
 - Minimal FastAPI application in `src/nfc_hub`.
 - Health endpoint available at `GET /health`.
 - Initial automated tests using pytest and FastAPI's test client.
+- Project packaging configuration in `pyproject.toml`.
+- Editable installation support for the `src` layout.
+- Separate runtime and testing dependency groups.
+- Centralized pytest configuration.
 - AI development guidelines.
 - Detailed project definition.
 - Initial user documentation.
 
-The FastAPI application and health endpoint have been validated successfully.
+The project can be installed in editable mode using `requirements.txt`.
+
+The `nfc_hub` package can be imported and the complete test suite can be executed without manually configuring `PYTHONPATH`.
+
+The FastAPI application, editable installation, package import and health endpoint tests have been validated successfully.
 
 No NFC Hub business functionality has been implemented yet. Authentication, persistence, tag management and public tag resolution remain planned.
 
@@ -436,47 +444,50 @@ Directories and modules must only be created when required by an implemented fea
 
 Commands must be executed from the repository root.
 
-Create virtual environment:
+Create the virtual environment:
+
 ```text
 python3 -m venv .venv
 ```
 
-Activate virtual environment:
-macOS and Linux
+Activate the virtual environment on macOS and Linux:
+
 ```text
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install the project in editable mode with its development and testing dependencies:
+
 ```text
 python3 -m pip install -r requirements.txt
 ```
 
-Install the project in editable mode:
-Editable installation will be documented when project packaging metadata is added.
-Expected future command:
+Install only the project and its runtime dependencies in editable mode:
+
 ```text
 python3 -m pip install -e .
 ```
 
-Do not claim this command is available until `pyproject.toml` or equivalent packaging configuration exists.
+Verify the package installation:
+
+```text
+python3 -m pip show nfc-hub
+```
 
 Run tests:
+
 ```text
-python3 -m pytest
+python3 -m pytest -v
 ```
 
 Run the application:
+
 ```text
 uvicorn nfc_hub.main:app --reload
 ```
 
-If the package has not been installed in editable mode:
-```text
-PYTHONPATH=src uvicorn nfc_hub.main:app --reload
-```
+Open the API documentation:
 
-Open the API documentation
 ```text
 http://127.0.0.1:8000/docs
 ```
@@ -556,7 +567,7 @@ Each increment must be reviewed before starting the next one.
 ### Roadmap
 
 Planned:
-- Add project packaging configuration.
+
 - Configure application settings.
 - Introduce SQLAlchemy.
 - Configure Alembic.
@@ -572,9 +583,11 @@ Planned:
 - Test the complete workflow with physical NTAG215 tags.
 
 In Progress:
-- Complete the initial test and packaging infrastructure.
+
+- No development increment is currently in progress.
 
 Completed:
+
 - Generate the initial project structure.
 - Configure the repository with `main` and `develop`.
 - Create the `feature/project-definition` branch.
@@ -584,6 +597,12 @@ Completed:
 - Create and validate the minimal FastAPI application.
 - Add the `GET /health` endpoint.
 - Add initial automated tests.
+- Add project packaging configuration using `pyproject.toml`.
+- Configure editable installation for the `src` layout.
+- Separate runtime and testing dependencies.
+- Centralize pytest configuration in `pyproject.toml`.
+- Enable package imports without manually configuring `PYTHONPATH`.
+- Enable test execution without manually configuring `PYTHONPATH`.
 - Confirm NTAG215 hardware specifications.
 - Write an HTTPS NDEF record using Flipper Zero and Momentum.
 - Validate physical tag scanning on Android.
