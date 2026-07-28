@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nfc-hub"
+version = "0.1.0"
+description = "Web application for managing reusable NFC tags"
+requires-python = ">=3.10"
+authors = [
+	{name = "Arturo Sánchez Martos"}
+]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[project.urls]
+Homepage = "https://github.com/Art-Phy/NFC_Hub"
+Repository = "https://github.com/Art-Phy/NFC_Hub"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "httpx2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

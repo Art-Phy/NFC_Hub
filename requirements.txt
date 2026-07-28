@@ -1,4 +1,1 @@
-fastapi
-uvicorn[standard]
-httpx2
-pytest
+--editable .[test]
