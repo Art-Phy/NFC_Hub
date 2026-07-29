@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Web_API-009688)
-![Tests](https://img.shields.io/badge/Tests-2_Passing-success)
-![Version](https://img.shields.io/badge/Version-v0.2.0-orange)
+![Tests](https://img.shields.io/badge/Tests-9_Passing-success)
+![Version](https://img.shields.io/badge/Version-v0.3.0-orange)
 ![Status](https://img.shields.io/badge/Status-Early_Development-yellow)
 
 ## NFC Hub
@@ -21,10 +21,14 @@ La aplicación incluye actualmente:
 - Aplicación mínima desarrollada con FastAPI.
 - Endpoint de comprobación de estado `GET /health`.
 - Documentación interactiva de FastAPI.
+- Configuración centralizada mediante `AppSettings`.
+- Variables de entorno con el prefijo `NFC_HUB_`.
+- Nombre de la aplicación, entorno y modo debug configurables.
+- Versión obtenida desde los metadatos del paquete instalado.
 - Pruebas automatizadas con pytest.
 - Estructura de paquete basada en `src/`.
 - Configuración del proyecto mediante `pyproject.toml`.
-- Instalación editable con dependencias de desarrollo y testing.
+- Instalación editable con dependencias de ejecución y testing.
 - Ejecución de la aplicación y los tests sin configurar manualmente `PYTHONPATH`.
 
 Respuesta del endpoint de estado:
@@ -72,6 +76,24 @@ El modo editable permite que los cambios realizados en `src/nfc_hub` estén disp
 
 ---
 
+### Configuración
+
+La configuración de la aplicación se encuentra centralizada en:
+
+```text
+src/nfc_hub/settings.py
+```
+Los ajustes pueden modificarse mediante variables de entorno con el prefijo `NFC_HUB_`:
+
+```bash
+export NFC_HUB_APP_NAME="NFC Hub Local"
+export NFC_HUB_ENVIRONMENT="development"
+export NFC_HUB_DEBUG="true"
+```
+La versión de la aplicación se obtiene directamente desde los metadatos del paquete instalado, evitando mantener una versión duplicada dentro del código.
+
+---
+
 ### Uso
 
 Ejecuta la aplicación desde la raíz del repositorio:
@@ -102,6 +124,10 @@ Los tests verifican:
 
 - El código de estado HTTP del endpoint `/health`.
 - La respuesta JSON exacta del endpoint.
+- Los valores predeterminados de la configuración.
+- La obtención de la versión desde los metadatos del paquete.
+- La sobrescritura de ajustes mediante variables de entorno.
+- La conversión del valor de `NFC_HUB_DEBUG` a tipo booleano.
 
 ---
 
