@@ -139,13 +139,13 @@ Early development
 Current version:
 
 ```text
-v0.2.0
+v0.3.0
 ```
 
 Current branch:
 
 ```text
-feature/project-packaging
+develop
 ```
 
 The repository currently contains:
@@ -153,11 +153,15 @@ The repository currently contains:
 - Initial project structure.
 - Minimal FastAPI application in `src/nfc_hub`.
 - Health endpoint available at `GET /health`.
-- Initial automated tests using pytest and FastAPI's test client.
 - Project packaging configuration in `pyproject.toml`.
 - Editable installation support for the `src` layout.
 - Separate runtime and testing dependency groups.
 - Centralized pytest configuration.
+- Centralized application settins through `AppSettings`.
+- Environment-variable support using the `NFC_Hub_` prefix.
+- Configurable application name, environment and debug mode.
+- Automatic version resolution from installed package metadata.
+- Automated tests using pytest and FastAPI's test client.
 - AI development guidelines.
 - Detailed project definition.
 - Initial user documentation.
@@ -166,7 +170,26 @@ The project can be installed in editable mode using `requirements.txt`.
 
 The `nfc_hub` package can be imported and the complete test suite can be executed without manually configuring `PYTHONPATH`.
 
+The FastAPI application currently uses centralized settings for:
+
+- Application title.
+- Application version.
+- Debug mode.
+
+The application settings are defined in:
+```text
+src/nfc_hub/core/settings.py
+```
+The following environment variables are currently supported:
+```bash
+NFC_HUB_APP_NAME
+NFC_HUB_ENVIRONMENT
+NFC_HUB_DEBUG
+```
+
 The FastAPI application, editable installation, package import and health endpoint tests have been validated successfully.
+
+The current test suite contains 9 passing tests.
 
 No NFC Hub business functionality has been implemented yet. Authentication, persistence, tag management and public tag resolution remain planned.
 
@@ -179,6 +202,7 @@ Backend:
 - FastAPI.
 - Uvicorn.
 - Pydantic.
+- Pydantic Settings.
 
 Frontend:
 - Jinja2.
@@ -308,7 +332,7 @@ The public route must not:
 
 ### Security Model
 
-The security model is based opn authenticated accounts and server-side authorization.
+The security model is based on authenticated accounts and server-side authorization.
 
 Important assumptions:
 - NFC tag content can be read and copied.
@@ -382,6 +406,16 @@ A single FastAPI application will contain:
 - Database access.
 - Static assets.
 
+Current structure
+```text
+src/nfc_hub/
+├── __init__.py
+├── main.py
+└── core/
+    ├── __init__.py
+    └── settings.py
+```
+
 Expected structure as functionality is introduced:
 
 ```text
@@ -405,6 +439,7 @@ Directories and modules must only be created when required by an implemented fea
 
 `main.py`
 - Create and configure the FastAPI application.
+- Load centralized application settings.
 - Register routers.
 - Configure templates and static files when introduced.
 - Avoid containing business logic.
@@ -418,6 +453,12 @@ Directories and modules must only be created when required by an implemented fea
 - Hold application configuration.
 - Provide shared security or database infrastructure when required.
 - Avoid becoming a miscellaneous utility directory.
+
+`core/settings.py`
+- Define application settings through `AppSettings`.
+- Load configurable values from environment variables using the `NFC_HUB_` prefix.
+- Obtain the application version from installed package metadata.
+- Expose a cached settings instance through `get_settings()`.
 
 `models/`
 - Define SQLAlchemy database entities.
@@ -437,6 +478,26 @@ Directories and modules must only be created when required by an implemented fea
 
 `static/`
 - Contain CSS, minimal JavaScript and local images.
+
+---
+
+### Application Configuration
+
+Application settings are centralized in:
+```text
+src/nfc_hub/core/settings.py
+```
+The application version is obtained from the installed package metadata for `nfc-hub`. It must not be duplicated as a hardcored value in the application code.
+
+Example environment configuration:
+```bash
+export NFC_HUB_APP_NAME="NFC Hub Local"
+export NFC_HUB_ENVIRONMENT="development"
+export NFC_HUB_DEBUG="true"
+```
+Settings are exposed through a cached `get_settings()` function. Tests that modify environment variables must clear the settings cache before and after execution.
+
+Database credentials, authentication secrets and deployment-specific settings must only be introduced when required by their corresponding increments.
 
 ---
 
@@ -542,9 +603,9 @@ Privacy
 The project should be developed through small increments.
 
 Suggested order:
-1. Validate the generated FastAPI project and add a health endpoint.
-2. Add packaging and test infrastructure.
-3. Add application configuration.
+1. Validate the generated FastAPI project and add a health endpoint. Completed.
+2. Add packaging and test infrastructure. Completed.
+3. Add application configuration. Completed.
 4. Introduce SQLAlchemy and Alembic.
 5. Create the user persistence model.
 6. Decide and implement authentication.
@@ -568,7 +629,6 @@ Each increment must be reviewed before starting the next one.
 
 Planned:
 
-- Configure application settings.
 - Introduce SQLAlchemy.
 - Configure Alembic.
 - Implement user persistence.
@@ -584,10 +644,11 @@ Planned:
 
 In Progress:
 
-- No development increment is currently in progress.
+- Nothing in Progress at the moment.
 
 Completed:
 
+- Prepare the application settings increment.
 - Generate the initial project structure.
 - Configure the repository with `main` and `develop`.
 - Create the `feature/project-definition` branch.
@@ -603,6 +664,12 @@ Completed:
 - Centralize pytest configuration in `pyproject.toml`.
 - Enable package imports without manually configuring `PYTHONPATH`.
 - Enable test execution without manually configuring `PYTHONPATH`.
+- Add centralized application settings using `AppSettings`.
+- Add environment-variable support using the `NFC_HUB_` prefix.
+- Configure the FastAPI title, version and debug mode through application settings.
+- Resolve the application version from installed package metadata.
+- Add automated tests for default settings and environment-variable overrides.
+- Expand the automated test suite to 9 tests.
 - Confirm NTAG215 hardware specifications.
 - Write an HTTPS NDEF record using Flipper Zero and Momentum.
 - Validate physical tag scanning on Android.
@@ -639,7 +706,6 @@ These are possibilities, not current requirements.
 
 - The authentication and session strategy has not been selected yet.
 - The final public token length and format have not been selected yet.
-- Project packaging metadata has not been added yet.
 - Database persistence has not been implemented yet.
 - Direct NFC writing from the application is not supported.
 - Physical tags currently require an external writing tool.
@@ -649,12 +715,19 @@ These are possibilities, not current requirements.
 
 ### Release Notes Context
 
-Important context for the future v0.1.0 release:
-- NFC Hub began as a reusable NFC tag management project.
+Important context for the future v0.3.0 release:
+- NFC Hub now has centralized application configuration.
+- Application settings are defined through `AppSettings`.
+- Environment variables use the `NFC_HUB_` prefix.
+- The application name, environment and debug mode are configurable.
+- The FastAPI title, version and debug are obtained from centralized settings.
+- The application version is resolved from installed package metadata.
+- The test suite validates default settings and environment-variable overrides.
+- The complete test suite contains 9 passing tests.
+- The health endpoint remains unchanged.
 - The initial hardware target is NTAG215.
 - Physical writing was validated using Flipper Zero with Momentum firmware.
 - The same NDEF URL was successfully scanned using Android and iPhone.
-- The initial application architecture is a FastAPI modular monolith.
 - The first supported behavior will be configurable HTTPS redirection.
 - Security is based on authenticated ownership, not NFC UID or URL secrecy.
 

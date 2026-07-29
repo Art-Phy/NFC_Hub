@@ -5,8 +5,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-
 ### [Unreleased]
+
+---
+
+### [0.3.0] - 2026-07-29
+
+#### Added
+
+- Centralized application configuration through `AppSettings`.
+- Environment-variable support using the `NFC_HUB_` prefix.
+- Configurable application name, environment and debug mode.
+- Automatic application version resolution from installed package metadata.
+- Runtime dependency on `pydantic-settings`.
+- Automated tests for default settings and environment-variable overrides.
+- New `core` package for application-wide configuration.
+
+#### Changed
+
+- Configured the FastAPI application title, version and debug mode through centralized settings.
+- Expanded the automated test suite from 2 to 9 tests.
+- Updated project documentation with the application configuration workflow.
+
+---
 
 ### [0.2.0] - 2026-07-28
 
@@ -34,5 +55,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Minimal FastAPI application in the `src/nfc_hub` package.
 - `GET /health` endpoint returning `{"status": "ok"}`.
 - Automated tests for the health endpoint status code and JSON response.
-- pytest and HTTPX2 as testing dependencies.
+- pytest and HTTPX as testing dependencies.
 - Initial project scope and development guidelines.
