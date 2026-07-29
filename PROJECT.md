@@ -139,13 +139,13 @@ Early development
 Current version:
 
 ```text
-v0.2.0
+v0.3.0
 ```
 
 Current branch:
 
 ```text
-feature/app-settings
+develop
 ```
 
 The repository currently contains:
@@ -644,10 +644,11 @@ Planned:
 
 In Progress:
 
-- Prepare the application settings increment for release as `v0.3.0`.
+- Nothing in Progress at the moment.
 
 Completed:
 
+- Prepare the application settings increment.
 - Generate the initial project structure.
 - Configure the repository with `main` and `develop`.
 - Create the `feature/project-definition` branch.

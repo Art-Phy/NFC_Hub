@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Web_API-009688)
 ![Tests](https://img.shields.io/badge/Tests-9_Passing-success)
-![Version](https://img.shields.io/badge/Version-v0.2.0-orange)
+![Version](https://img.shields.io/badge/Version-v0.3.0-orange)
 ![Status](https://img.shields.io/badge/Status-Early_Development-yellow)
 
 ## NFC Hub
