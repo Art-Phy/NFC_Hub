@@ -10,6 +10,7 @@ class AppSettings(BaseSettings):
     app_name: str = "NFC Hub"
     environment: str = "development"
     debug: bool = False
+    database_url: str = "sqlite:///./nfc_hub.db"
 
     @property
     def version(self) -> str:
