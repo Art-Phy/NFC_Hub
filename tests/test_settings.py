@@ -44,3 +44,14 @@ class TestEnvOverrides:
         monkeypatch.setenv("NFC_HUB_DEBUG", "true")
         settings = get_settings()
         assert settings.debug is True
+
+
+class TestDatabaseUrl:
+    def test_default_database_url(self):
+        settings = get_settings()
+        assert settings.database_url == "sqlite:///./nfc_hub.db"
+
+    def test_database_url_override(self, monkeypatch):
+        monkeypatch.setenv("NFC_HUB_DATABASE_URL", "sqlite:///./custom.db")
+        settings = get_settings()
+        assert settings.database_url == "sqlite:///./custom.db"
