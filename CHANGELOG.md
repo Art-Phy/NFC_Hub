@@ -9,6 +9,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+### [0.4.0] - 2026-07-31
+
+#### Added
+
+- Database infrastructure using SQLAlchemy 2.x.
+- Configurable database URL through `AppSettings`.
+- Environment-variable support for `NFC_HUB_DATABASE_URL`.
+- SQLite as the default database for local development.
+- `build_engine()` factory for creating SQLAlchemy engines.
+- Application-level SQLAlchemy engine and `SessionLocal` session factory.
+- Declarative base prepared for future persistence models.
+- Initial Alembic configuration for database migrations.
+- Runtime dependencies on SQLAlchemy and Alembic.
+- Automated tests for database settings, engine creation and connectivity.
+- Automated validation of the application session binding.
+- SQLite cross-thread connection test using an isolated temporary database.
+- End-to-end Alembic configuration tests.
+- Database file exclusions in `.gitignore`.
+- Physical NFC validation using rewritable NTAG215 tags.
+- Successful NDEF record writing and rewriting using NFC Maker.
+- Successful NFC tag scanning using Android and iPhone devices.
+
+#### Changed
+
+- Expanded the automated test suite from 9 to 20 tests.
+- Updated project documentation with database infrastructure and NFC hardware validation.
+- Updated the project version to `0.4.0`.
+
+---
+
 ### [0.3.0] - 2026-07-29
 
 #### Added
