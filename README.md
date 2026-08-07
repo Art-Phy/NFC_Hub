@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Web_API-009688)
 ![Tests](https://img.shields.io/badge/Tests-20_Passing-success)
-![Version](https://img.shields.io/badge/Version-v0.4.0-orange)
+![Version](https://img.shields.io/badge/Version-v0.5.0-orange)
 ![Status](https://img.shields.io/badge/Status-Early_Development-yellow)
 
 ## NFC Hub
@@ -10,7 +10,7 @@ Aplicación web para gestionar etiquetas NFC reutilizables mediante enlaces perm
 
 Cada etiqueta física almacenará una URL pública generada por NFC Hub. El propietario podrá modificar posteriormente el destino asociado desde la aplicación sin necesidad de volver a escribir la etiqueta.
 
-> NFC Hub se encuentra actualmente en una fase inicial de desarrollo. La gestión de usuarios, etiquetas y destinos todavía no está implementada.
+> NFC Hub se encuentra actualmente en una fase inicial de desarrollo. La persistencia de usuarios ya está preparada, pero el registro, la autenticación y la gestión de etiquetas y destinos todavía no están implementados.
 
 ---
 
@@ -29,9 +29,16 @@ La aplicación incluye actualmente:
 - Motor SQLite configurable mediante variables de entorno.
 - Factoría de motores de base de datos para entornos aislados.
 - Sesiones de SQLAlchemy mediante `SessionLocal`.
-- Base declarativa preparada para futuros modelos.
+- Base declarativa de SQLAlchemy.
+- Modelo persistente `User`.
+- Normalización de direcciones de correo electrónico mediante el ORM.
+- Valores predeterminados definidos en Python y en la base de datos.
+- Marcas temporales UTC para la creación y actualización de usuarios.
 - Infraestructura de migraciones mediante Alembic.
+- Primera migración real para crear la tabla `users`.
+- Migraciones reversibles mediante `upgrade` y `downgrade`.
 - Pruebas automatizadas con pytest.
+- Tests aislados de la base de datos de desarrollo.
 - Estructura de paquete basada en `src/`.
 - Configuración del proyecto mediante `pyproject.toml`.
 - Instalación editable con dependencias de ejecución y testing.
@@ -125,22 +132,58 @@ Actualmente proporciona:
 - Creación de motores mediante `build_engine()`.
 - Motor principal configurado mediante `NFC_HUB_DATABASE_URL`.
 - Factoría de sesiones `SessionLocal`.
-- Base declarativa de SQLAlchemy para futuros modelos.
+- Base declarativa de SQLAlchemy.
 - Compatibilidad de SQLite con conexiones utilizadas desde distintos hilos.
-- Configuración inicial de Alembic para gestionar futuras migraciones.
+- Integración con Alembic para gestionar migraciones.
 
-La configuración de Alembic se encuentra en:
+El primer modelo persistente se encuentra en:
+
+```text
+src/nfc_hub/models/user.py
+```
+
+El modelo `User` incluye:
+
+- Identificador interno.
+- Correo electrónico obligatorio, único e indexado.
+- Normalización del correo electrónico mediante eliminación de espacios exteriores y conversión a minúsculas.
+- Almacenamiento obligatorio del futuro hash de contraseña.
+- Estado activo por defecto.
+- Fecha de creación.
+- Fecha de actualización automática mediante el ORM.
+
+El modelo únicamente proporciona la estructura de persistencia. El registro de usuarios, el hashing de contraseñas y la autenticación todavía no están implementados.
+
+La configuración y las revisiones de Alembic se encuentran en:
 
 ```text
 alembic.ini
 alembic/
 ```
 
-Todavía no existen modelos de negocio, tablas ni revisiones de migración. La primera migración se creará junto con el primer modelo persistente.
+Para aplicar todas las migraciones pendientes:
+
+```bash
+alembic upgrade head
+```
+
+Para revertir todas las migraciones:
+
+```bash
+alembic downgrade base
+```
+
+La primera revisión crea la tabla `users` y su índice único de correo electrónico. Tanto la migración de subida como la de bajada están implementadas y verificadas.
 
 ---
 
 ### Uso
+
+Antes de ejecutar la aplicación, aplica las migraciones pendientes:
+
+```bash
+alembic upgrade head
+```
 
 Ejecuta la aplicación desde la raíz del repositorio:
 
@@ -181,8 +224,19 @@ Los tests verifican:
 - El funcionamiento de conexiones SQLite desde distintos hilos.
 - La disponibilidad de la base declarativa de SQLAlchemy.
 - La integración real de la configuración de Alembic.
+- La estructura, columnas y restricciones del modelo `User`.
+- La normalización de correos electrónicos mediante el ORM.
+- La protección frente a correos electrónicos duplicados.
+- La obligatoriedad del correo electrónico y del hash de contraseña.
+- Los valores predeterminados de `is_active`.
+- La creación y actualización de marcas temporales.
+- La creación de la tabla `users` mediante Alembic.
+- La reversibilidad de la migración mediante `upgrade` y `downgrade`.
+- La consistencia entre los modelos y las migraciones mediante `alembic check`.
+- El aislamiento de las bases de datos utilizadas durante los tests.
+- La protección de la base de datos de desarrollo frente a modificaciones durante las pruebas.
 
-La suite completa contiene actualmente **20 tests**.
+La suite completa contiene actualmente **40 tests**.
 
 ---
 

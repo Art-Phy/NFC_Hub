@@ -9,6 +9,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+### [0.5.0] - 2026-08-07
+
+#### Added
+
+- First persistent application model: `User`.
+- Modern SQLAlchemy 2.x model using `Mapped` and `mapped_column`.
+- Required email field with a unique database index.
+- ORM email normalization through whitespace trimming and lowercase conversion.
+- Required storage field for password hashes.
+- Active-user status with Python-side and database-side defaults.
+- Timezone-aware UTC timestamps for user creation and updates.
+- Automatic `updated_at` changes on normal ORM updates.
+- First real Alembic revision for creating the `users` table and its unique email index.
+- Reversible migration operations through `upgrade()` and `downgrade()`.
+- Model registration in Alembic metadata for migration autogeneration.
+- Isolated automated tests for the `User` model and database constraints.
+- Migration tests covering upgrades, downgrades and complete migration round trips.
+- Alembic consistency checks for detecting pending schema changes.
+- Protection against creating or modifying the development database during tests.
+
+#### Changed
+
+- Expanded the automated test suite from 20 to 40 tests.
+- Updated project documentation with the first persistence model and migration workflow.
+- Updated the project version to `0.5.0`.
+
+---
+
 ### [0.4.0] - 2026-07-31
 
 #### Added
