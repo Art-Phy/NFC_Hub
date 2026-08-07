@@ -283,4 +283,13 @@ El comportamiento principal de NFC Hub utilizará una URL pública permanente al
 
 ### Licencia
 
-Pendiente de definir.
+NFC Hub está disponible bajo la licencia
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0).
+
+Se permite utilizar, estudiar, modificar y distribuir el software con fines
+no comerciales, de acuerdo con los términos de la licencia.
+
+Cualquier uso comercial requiere una licencia independiente y la autorización
+previa y por escrito del autor.
+
+Copyright © 2026 Arturo Sánchez Martos.
