@@ -71,12 +71,15 @@ class TestDeclarativeBase:
 
 
 class TestAlembicConfig:
-    def test_check_without_migrations(self, monkeypatch):
-        monkeypatch.setenv("NFC_HUB_DATABASE_URL", "sqlite:///:memory:")
+    def test_check_reports_no_pending_changes(self, tmp_path, monkeypatch):
+        database_url = f"sqlite:///{tmp_path / 'alembic_check.db'}"
+        monkeypatch.setenv("NFC_HUB_DATABASE_URL", database_url)
         cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
+        command.upgrade(cfg, "head")
         command.check(cfg)
 
-    def test_current_without_migrations(self, monkeypatch):
-        monkeypatch.setenv("NFC_HUB_DATABASE_URL", "sqlite:///:memory:")
+    def test_current_reports_base_revision(self, tmp_path, monkeypatch):
+        database_url = f"sqlite:///{tmp_path / 'alembic_current.db'}"
+        monkeypatch.setenv("NFC_HUB_DATABASE_URL", database_url)
         cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
         command.current(cfg)
