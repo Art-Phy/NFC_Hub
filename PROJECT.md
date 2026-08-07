@@ -138,7 +138,7 @@ Early development
 Current version:
 
 ```text
-v0.4.0
+v0.5.0
 ```
 
 Current branch:
@@ -164,8 +164,16 @@ The repository currently contains:
 - Database infrastructure using SQLAlchemy 2.x.
 - SQLite as the default database for local development.
 - SQLAlchemy engine and session factory.
-- Declarative base prepared for future models.
-- Alembic configuration prepared for database migrations.
+- Declarative base for persistence models.
+- Persistent `User` model.
+- ORM email normalization.
+- Python-side and database-side defaults.
+- Timezone-aware user timestamps.
+- Alembic configuration for database migrations.
+- First real Alembic revision for the `users` table.
+- Reversible migration operations.
+- Alembic model registration and autogeneration consistency.
+- Isolated model and migration tests.
 - Automated tests using pytest and FastAPI's test client.
 - AI development guidelines.
 - Detailed project definition.
@@ -209,13 +217,19 @@ The database infrastructure is defined in:
 src/nfc_hub/core/database.py
 ```
 
-The application, editable installation, package import, health endpoint, database infrastructure and Alembic configuration have been validated successfully.
+The first persistent application model is defined in:
 
-The current test suite contains 20 passing tests.
+```text
+src/nfc_hub/models/user.py
+```
 
-No NFC Hub business functionality has been implemented yet. Authentication, user persistence, tag persistence, tag management and public tag resolution remain planned.
+The first Alembic revision creates the `users` table and its unique email index.
 
-No application tables or Alembic migration revisions exist yet.
+The application, editable installation, package import, health endpoint, database infrastructure, `User` model and Alembic migration have been validated successfully.
+
+The current test suite contains 40 passing tests.
+
+User persistence is implemented, but it is not exposed through the API. Registration, password hashing, authentication, tag persistence, tag management and public tag resolution remain planned.
 
 ---
 
@@ -269,18 +283,36 @@ Tags are initially written using NFC Maker on the Flipper Zero.
 
 ### Domain Model
 
-The initial domain is expected to include the following concepts.
+The initial domain includes or is expected to include the following concepts.
 
 #### User
 
-Represents an authenticated account that can own and manage NFC tags.
+Represents an account that will authenticate and own NFC tags.
 
-Expected responsibilities:
+Currently implemented fields:
 
-- Store account identification data.
-- Store a securely hashed password.
-- Own zero or more tags.
+- Internal integer identifier.
+- Required email address.
+- Unique email index.
+- ORM email normalization using whitespace trimming and lowercase conversion.
+- Required password hash storage field.
+- Active status.
+- Creation timestamp.
+- Update timestamp.
+
+Current implementation notes:
+
+- `User` is implemented only as a persistence model.
+- Password hashing logic is not implemented.
+- Registration and authentication are not implemented.
+- No user routes, schemas or services exist yet.
+- The model does not currently own any tags because tag persistence has not been introduced.
+
+Future responsibilities:
+
 - Authenticate before accessing management operations.
+- Own zero or more tags.
+- Participate in ownership and authorization checks.
 
 #### Tag
 
@@ -399,6 +431,8 @@ The application must protect against:
 - Session or authentication data exposure.
 - Sensitive information in logs or public errors.
 
+The `User` model stores only the future password hash. Plaintext passwords must never be persisted.
+
 The authentication mechanism must be selected and documented before implementation. The initial application should prefer a conventional server-side approach suitable for a server-rendered web interface.
 
 Do not implement authentication until the chosen session strategy, password hashing library and CSRF requirements have been reviewed.
@@ -466,10 +500,13 @@ Current structure:
 src/nfc_hub/
 ├── __init__.py
 ├── main.py
-└── core/
+├── core/
+│   ├── __init__.py
+│   ├── database.py
+│   └── settings.py
+└── models/
     ├── __init__.py
-    ├── database.py
-    └── settings.py
+    └── user.py
 ```
 
 Database migration infrastructure:
@@ -480,6 +517,7 @@ alembic/
 ├── env.py
 ├── script.py.mako
 └── versions/
+    └── 2c5ceb75c9fa_create_users_table.py
 ```
 
 Expected structure as functionality is introduced:
@@ -543,6 +581,15 @@ Directories and modules must only be created when required by an implemented fea
 
 - Define SQLAlchemy database entities.
 - Express relationships and database constraints.
+- Keep persistence concerns separate from HTTP and authentication behavior.
+
+#### `models/user.py`
+
+- Define the persistent `User` entity.
+- Store normalized account email addresses.
+- Store password hashes without implementing hashing logic.
+- Provide active status and timestamps.
+- Avoid containing registration or authentication workflows.
 
 #### `schemas/`
 
@@ -599,7 +646,7 @@ The application exposes:
 - `build_engine()` for constructing an engine from a database URL.
 - `engine` as the configured application engine.
 - `SessionLocal` as the application session factory.
-- `Base` as the declarative base for future models.
+- `Base` as the declarative base for persistence models.
 
 The module-level engine and session factory must not open a connection or create the SQLite database merely by being imported.
 
@@ -608,6 +655,20 @@ SQLite uses thread-compatible connection configuration because FastAPI may execu
 Tests must use isolated in-memory or temporary databases and must not create or modify the development database.
 
 Database schema changes must be managed using Alembic. Application code must not use `Base.metadata.create_all()` as a substitute for migrations.
+
+The current database schema contains the `users` table.
+
+The `User` model uses:
+
+- Modern SQLAlchemy 2.x typed mappings.
+- A required and uniquely indexed email address.
+- ORM email normalization.
+- Required password hash storage.
+- Python-side and database-side defaults.
+- Timezone-aware creation and update timestamps.
+- Automatic ORM updates for `updated_at`.
+
+Database-side defaults use portable SQLAlchemy expressions to preserve compatibility with the planned PostgreSQL migration.
 
 ---
 
@@ -622,16 +683,41 @@ alembic/
 
 The effective database URL is obtained from `AppSettings`, keeping the application configuration as the single source of truth.
 
-No migration revision exists yet because no persistence model has been implemented.
+The first migration revision is:
 
-The first revision must be created alongside the first database model. Empty or speculative migrations must not be created.
+```text
+2c5ceb75c9fa_create_users_table.py
+```
 
-Useful validation commands:
+The revision creates:
+
+- The `users` table.
+- The unique `ix_users_email` index.
+
+Its `upgrade()` and `downgrade()` operations are complete and symmetrical.
+
+The `User` model is registered in Alembic metadata so autogeneration can compare the declared model with the migrated schema.
+
+Apply all pending migrations:
+
+```bash
+alembic upgrade head
+```
+
+Revert all migrations:
+
+```bash
+alembic downgrade base
+```
+
+Useful validation commands after upgrading the database to `head`:
 
 ```bash
 alembic check
 alembic current
 ```
+
+`alembic check` must report no pending schema operations when the database is at the current head revision.
 
 ---
 
@@ -669,6 +755,12 @@ Verify the package installation:
 python3 -m pip show nfc-hub
 ```
 
+Apply database migrations:
+
+```bash
+alembic upgrade head
+```
+
 Run tests:
 
 ```bash
@@ -687,7 +779,7 @@ Open the API documentation:
 http://127.0.0.1:8000/docs
 ```
 
-Validate Alembic:
+Validate Alembic after upgrading the database to `head`:
 
 ```bash
 alembic check
@@ -715,9 +807,21 @@ Commands must be updated if the application entry point or packaging configurati
 - SQLite is used for initial local development.
 - PostgreSQL is planned for later deployment.
 - Database schema changes must use Alembic.
-- `create_all()` must not replace migrations.
+- `create_all()` must not replace migrations in application code.
+- Tests may use `Base.metadata.create_all()` only for isolated model-level databases when migration behavior is not under test.
 - Tests must use isolated databases.
 - Local database files must not be committed.
+- Tests must not create or modify `nfc_hub.db`.
+
+#### User Persistence
+
+- Email normalization currently occurs during normal ORM assignment.
+- Database-level inserts do not perform ORM normalization.
+- Email uniqueness is enforced by a single unique database index.
+- `password_hash` stores only an already generated hash.
+- Password hashing and verification must be implemented outside the model.
+- User persistence must not be described as registration or authentication.
+- Authentication behavior must not be added to the model.
 
 #### Frontend
 
@@ -758,19 +862,31 @@ Suggested order:
 2. Add packaging and test infrastructure. Completed.
 3. Add application configuration. Completed.
 4. Introduce SQLAlchemy and Alembic. Completed.
-5. Create the first persistence model and migration.
-6. Decide and implement authentication.
-7. Create the remaining tag ownership model.
-8. Generate secure public tag tokens.
-9. Add authenticated tag creation.
-10. Add the public tag resolution route.
-11. Add destination editing.
-12. Add tag activation and deactivation.
-13. Add the server-rendered management interface.
-14. Add final NFC writing instructions.
-15. Prepare the first usable release.
+5. Create the first persistence model and migration. Completed.
+6. Define the authentication, session, password hashing and CSRF strategy.
+7. Implement user registration and authentication.
+8. Create the tag persistence and ownership model.
+9. Define and generate secure public tag tokens.
+10. Add authenticated tag creation.
+11. Add the public tag resolution route.
+12. Add destination editing.
+13. Add tag activation and deactivation.
+14. Add the server-rendered management interface.
+15. Add final NFC writing instructions.
+16. Prepare the first usable release.
 
-The exact order of the first persistence models must be decided before implementation. The current product direction favors implementing the central `Tag` concept next so the project can begin exercising its NFC-specific workflow, while ownership and authentication remain required before management operations are exposed.
+The next increment must define the authentication architecture before authentication code is implemented.
+
+That review must cover at least:
+
+- Server-side session strategy.
+- Session storage and cookie behavior.
+- Password hashing library and parameters.
+- Login and logout lifecycle.
+- CSRF protection requirements.
+- Authentication dependencies.
+- Secret configuration.
+- Testing strategy.
 
 This order is a proposal, not permission to implement multiple increments at once.
 
@@ -782,12 +898,12 @@ Each increment must be reviewed before starting the next one.
 
 #### Planned
 
-- Design and implement the first persistence model.
-- Create the first Alembic migration.
-- Define the public tag token format and length.
-- Implement user persistence.
 - Define the authentication and session strategy.
-- Implement secure authentication.
+- Select and configure secure password hashing.
+- Implement user registration.
+- Implement user authentication and logout.
+- Create the tag persistence and ownership model.
+- Define the public tag token format and length.
 - Implement logical NFC tag management.
 - Generate permanent public tag URLs.
 - Implement configurable HTTPS redirects.
@@ -822,10 +938,20 @@ Each increment must be reviewed before starting the next one.
 - Configure SQLite for local development.
 - Add configurable database URL support.
 - Add the application engine and session factory.
-- Add the declarative base for future models.
+- Add the declarative base for persistence models.
 - Configure Alembic.
 - Validate Alembic using real command execution.
-- Expand the automated test suite to 20 tests.
+- Create the persistent `User` model.
+- Add required and uniquely indexed user emails.
+- Add ORM email normalization.
+- Add password hash storage.
+- Add active-user and timestamp defaults.
+- Create the first real Alembic migration.
+- Register persistence models in Alembic metadata.
+- Verify Alembic autogeneration consistency.
+- Verify migration upgrade, downgrade and re-upgrade behavior.
+- Protect the development database during automated tests.
+- Expand the automated test suite to 40 tests.
 - Confirm NTAG215 hardware specifications.
 - Write NDEF records using Flipper Zero and Momentum.
 - Validate physical tag scanning on Android.
@@ -864,9 +990,11 @@ These are possibilities, not current requirements.
 ### Known Issues
 
 - The authentication and session strategy has not been selected yet.
+- The password hashing library and parameters have not been selected yet.
+- CSRF protection requirements have not been finalized.
+- User persistence is not exposed through registration or authentication workflows.
 - The final public token length and format have not been selected yet.
-- No persistence models or database tables exist yet.
-- No Alembic migration revisions exist yet.
+- No tag persistence model exists yet.
 - Direct NFC writing from the application is not supported.
 - Physical tags currently require an external writing tool.
 - NFC antenna position varies between mobile devices.
@@ -875,61 +1003,27 @@ These are possibilities, not current requirements.
 
 ### Release Notes Context
 
-Important context for the v0.4.0 release:
+Important context for the v0.5.0 release:
 
-- NFC Hub now includes database infrastructure using SQLAlchemy 2.x.
-- SQLite is the default database for local development.
-- The database URL can be configured through `NFC_HUB_DATABASE_URL`.
-- The application exposes a configurable engine and session factory.
-- A declarative base is available for future persistence models.
-- Alembic is configured for future database migrations.
-- No models, application tables or migration revisions have been created yet.
-- The complete test suite contains 20 passing tests.
-- Alembic integration is validated through actual command execution.
-- Tests use isolated in-memory or temporary databases.
-- Importing the database module does not create `nfc_hub.db`.
-- NTAG215 tags have been written and rewritten successfully.
-- NDEF records have been scanned successfully using Android and iPhone.
-- The first supported application behavior will be configurable HTTPS redirection.
-- Security is based on authenticated ownership, not NFC UID or URL secrecy.
+- NFC Hub now includes its first persistent application model: `User`.
+- The model uses modern SQLAlchemy 2.x typed mappings.
+- User emails are required, normalized by the ORM and protected by a unique database index.
+- The model stores a required password hash without implementing password hashing or authentication logic.
+- Active status and timestamps have Python-side and database-side defaults.
+- `updated_at` changes automatically during normal ORM updates.
+- The first real Alembic revision creates the `users` table and its unique email index.
+- Migration `upgrade()` and `downgrade()` operations are implemented and verified.
+- Alembic metadata registration supports schema autogeneration checks.
+- Migration defaults use portable SQLAlchemy expressions compatible with SQLite and planned PostgreSQL usage.
+- The complete test suite contains 40 passing tests.
+- Model and migration tests use isolated in-memory or temporary databases.
+- Tests do not create or modify `nfc_hub.db`.
+- Registration, password hashing, authentication, tag persistence and public tag resolution remain unimplemented.
+- The next increment must define the authentication, session, password hashing and CSRF strategy before authentication code is added.
+- Security remains based on authenticated ownership, not NFC UID or URL secrecy.
 
 New implementation changes made after this release must be recorded under:
 
 ```text
 ### [Unreleased]
 ```
-
-in `CHANGELOG.md`.
-
----
-
-### Notes for Future Agents
-
-Before making changes:
-
-1. Read `AGENT.md`.
-2. Read this file completely.
-3. Inspect the current repository structure.
-4. Check the current branch and Git status.
-5. Verify what functionality is actually implemented.
-6. Distinguish roadmap items from implemented features.
-7. Propose one small, coherent increment.
-8. Explain architectural or security implications.
-9. Wait for approval when the requested scope is ambiguous.
-10. Run and report the relevant tests after making changes.
-
-Important restrictions:
-
-- Do not implement the entire MVP in one task.
-- Do not introduce a separate frontend.
-- Do not introduce Docker before it is requested.
-- Do not treat the NFC UID as proof of ownership.
-- Do not make public tokens predictable.
-- Do not expose internal database identifiers.
-- Do not add speculative domain models.
-- Do not create empty migrations.
-- Do not use `create_all()` instead of Alembic migrations.
-- Do not claim security guarantees without implementation and tests.
-- Do not create commits, merges, tags or pushes unless explicitly requested.
-
-The project must remain understandable, testable and defensible at every stage.
