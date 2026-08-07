@@ -5,6 +5,8 @@ from sqlalchemy import engine_from_config, pool
 
 from nfc_hub.core.database import Base
 from nfc_hub.core.settings import get_settings
+# Import the model so it is registered on Base.metadata for autogeneration.
+from nfc_hub.models import User
 
 config = context.config
 
