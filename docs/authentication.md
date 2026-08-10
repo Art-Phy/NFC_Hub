@@ -1,754 +1,708 @@
-# Authentication Architecture
 
-## Scope
+## Authentication Architecture
 
-This document defines the authentication architecture for NFC Hub before any
-authentication code is implemented. It is a planning and design document and
-does not describe working software.
+### Scope
 
-The document separates:
+This document defines the authentication architecture for NFC Hub before authentication code is implemented. It is a planning and design reference, not a description of working software.
 
-- Decisions for the initial implementation.
-- Requirements for the next coding increment.
-- Features intentionally postponed until later.
-
-The authentication strategy is:
+The initial strategy is:
 
 - Conventional email-and-password authentication.
-- Argon2id password hashing using `argon2-cffi`.
-- Opaque server-side sessions.
-- Only a random session token stored in the browser cookie.
-- Only a cryptographic hash of that token stored in the database.
-- `HttpOnly` session cookie with `SameSite=Lax`.
-- `Secure` enabled in production.
-- CSRF tokens for all state-changing server-rendered forms.
-- FastAPI dependencies for resolving the current user and requiring
-  authentication.
+- Argon2id password hashing with `argon2-cffi`.
+- Opaque server-side sessions persisted in the database.
+- Random session tokens stored in browser cookies.
+- Only cryptographic hashes of session tokens persisted.
+- `HttpOnly`, `SameSite=Lax` session cookies.
+- `Secure` cookies in production.
+- Synchronizer CSRF tokens for state-changing server-rendered forms.
+- Explicit FastAPI dependencies for page and API authentication.
 - No JWT authentication.
-- No authentication based on NFC tag UID.
-- No assumption that public NFC URLs are secret.
+- No authentication based on NFC tag UID or public NFC URLs.
+
+The document distinguishes:
+
+- Architectural decisions.
+- Requirements for the next coding increment.
+- Features intentionally postponed.
 
 ---
 
-## 1. Authentication Method
+### 1. Authentication Method
 
-Decision: conventional email-and-password authentication through server-rendered
-HTML forms.
+NFC Hub uses conventional email-and-password authentication through server-rendered HTML forms.
 
-Why:
+The email address is the login identifier. The existing `User` model already provides:
 
-- The first frontend is server-rendered with Jinja2. Form-based authentication
-  is the natural fit.
-- The domain is a small modular monolith. A simple email-and-password model
-  keeps the attack surface, code and maintenance burden small.
-- Social login, OAuth and multi-factor authentication are not required by the
-  MVP scope defined in `PROJECT.md`.
+- A normalized and uniquely indexed email address.
+- A `password_hash` column.
+- An active/inactive state.
 
-The email address is the login identifier. The existing `User` model already
-stores a normalized, uniquely indexed email address and a `password_hash`
-column. No change to that model is needed to support authentication.
+No change to the existing user model is required solely to support authentication.
+
+This approach fits the initial server-rendered Jinja2 frontend and small modular-monolith architecture. OAuth, social login and multi-factor authentication are outside the MVP scope.
 
 ---
 
-## 2. Server-Side Session Strategy
+### 2. Server-Side Session Strategy
 
-Decision: opaque server-side sessions persisted in the database.
+NFC Hub uses opaque server-side sessions persisted in the database.
 
-Each successful login or registration creates a new authenticated session tied
-to the authenticated user. A user may hold multiple concurrent authenticated
-sessions, one per logged-in device or browser.
+Each successful login or registration creates a new authenticated session associated with the authenticated user. Multiple concurrent sessions are allowed so a user can remain logged in on different browsers or devices.
 
-The browser receives only a random, unguessable session token that is opaque to
-the client. The session identity, lifetime and owner live on the server. The
-browser cookie carries no user data and no cryptography to interpret.
+The browser receives only a random, unguessable session token. The cookie contains no user data or signed payload. Session ownership, state and expiration remain on the server.
 
-Why:
+This provides:
 
-- Sessions must be revocable. Deleting a database row is immediate and
-  deterministic.
-- Session data can change without invalidating cookies or requiring signed
-  payloads.
-- No shared signing secret is needed, because the token is random and is never
-  interpreted by the server as data.
-
-The client must never be able to select, guess or influence the session
-identity.
+- Immediate revocation by deleting a database row.
+- Centralized session expiration.
+- No application-wide signing secret for the session mechanism.
+- No client influence over session identity or contents.
 
 ---
 
-## 3. Session Persistence and Valid Session States
+### 3. Session Persistence and Valid States
 
-A future `sessions` table will be introduced in the next coding increment. Its
-shape is defined here so the implementation is designed once.
+The next coding increment introduces a `sessions` table with these fields:
 
-Fields:
-
-- `id` — internal integer primary key, used only for bookkeeping and logging.
-- `user_id` — foreign key to `users.id`, nullable, with `ON DELETE CASCADE`.
-- `token_hash` — unique, indexed column holding the SHA-256 hash of the session
-  token. Only this hash is ever stored.
-- `csrf_token` — random value generated with a cryptographically secure PRNG,
-  bound to this session, used by the synchronizer CSRF pattern. It is stored
-  server-side and must never be placed in the session cookie.
+- `id` — internal integer primary key used for bookkeeping and operational logging.
+- `user_id` — nullable foreign key to `users.id` with `ON DELETE CASCADE`.
+- `token_hash` — unique, indexed SHA-256 hash of the raw session token.
+- `csrf_token` — random server-side token used by the synchronizer-token CSRF pattern.
 - `created_at` — timezone-aware UTC creation timestamp.
 - `expires_at` — timezone-aware UTC expiration timestamp.
 
-The `user_id` column is nullable, but exactly two session states are valid:
+Exactly two session states are valid:
 
 - **Anonymous pre-authentication session:** `user_id IS NULL`.
 - **Authenticated session:** `user_id IS NOT NULL`.
 
-Invariants:
+The following invariants apply:
 
-- Anonymous sessions exist only to host the CSRF token on registration and
-  login forms.
-- Anonymous sessions can never authorize access to protected resources.
-- Authentication dependencies reject every session whose `user_id` is null.
-- An authenticated session is always a newly created row. It is never created by
-  updating, promoting, reusing or binding an anonymous row.
-- A successful login or registration always ends with the anonymous row deleted
-  and a new authenticated row created (sections 13 and 14).
+- Anonymous sessions exist only to support CSRF protection for login and registration.
+- Anonymous sessions never authorize protected operations.
+- Authentication dependencies reject sessions whose `user_id` is null.
+- An authenticated session is always a newly inserted row.
+- An anonymous row is never updated, promoted or bound to a user.
+- Successful authentication deletes the anonymous row and inserts a new authenticated row atomically.
 - No intermediate or partially authenticated state is valid.
-- These invariants must be covered by automated tests (section 21).
 
-A future Alembic migration must create this table and its indexes. Creating the
-model and its migration belongs to the next coding increment.
+The model, indexes and Alembic migration belong to the next coding increment.
 
 ---
 
-## 4. Session Token Generation and Server-Side Storage
+### 4. Session Token Generation and Storage
 
-Generation:
+Raw session tokens are generated with:
 
-- The raw session token is generated with `secrets.token_urlsafe(32)`.
-- This produces 32 bytes of entropy (256 bits) encoded as a URL-safe string,
-  long enough to be difficult to guess.
-- A new independent token is generated for every new session. Tokens are never
-  reused.
-- The raw token only ever lives in memory at creation time and in the browser
-  cookie.
+```python
+secrets.token_urlsafe(32)
+```
 
-Storage:
+This provides 32 bytes of entropy encoded as a URL-safe string.
 
-- Only `sha256(raw_token).hexdigest()` is persisted, in the `token_hash`
-  column. The raw token is never stored.
+Rules:
 
-Lookup and comparison:
+- Generate a new independent token for every session.
+- Never accept a session token chosen by the client.
+- Never reuse a token.
+- Never persist or log the raw token.
+- Store the raw token only in the browser cookie.
+- Persist only `sha256(raw_token).hexdigest()` in `token_hash`.
 
-- On every request the application reads the raw token from the cookie,
-  computes its SHA-256 hex digest, and queries the unique `token_hash` column
-  directly.
-- The raw token is never compared with a stored secret, so a constant-time
-  comparison is not required for the database lookup itself.
-- Constant-time comparison with `secrets.compare_digest()` is required whenever
-  a submitted value is directly compared with a stored secret, specifically for
-  CSRF-token verification (section 16).
+For each request, the application:
 
----
+1. Reads the raw token from the cookie.
+2. Computes its SHA-256 digest.
+3. Queries the unique `token_hash` column.
+4. Rejects missing, unknown or expired sessions.
 
-## 5. Session Expiration, Revocation and Cleanup
+A constant-time comparison is unnecessary for the indexed database lookup because no raw submitted secret is compared directly with a stored raw secret.
 
-Expiration:
-
-- Every session has an absolute `expires_at` calculated from its type at
-  creation time.
-- A session is rejected as soon as the current time is at or past
-  `expires_at`, regardless of recent activity. Sliding renewal is not
-  implemented in the initial increment.
-
-Revocation:
-
-- Revocation means deleting the corresponding session row. No `revoked_at`
-  column and no boolean revocation field are added unless a concrete auditing
-  requirement appears.
-- Logout deletes only the current authenticated session (section 15).
-- A future password-change implementation must delete all sessions belonging to
-  the affected user.
-
-Cleanup:
-
-- Expired rows of either session type are eligible for cleanup.
-- Opportunistic cleanup may run when a new session is created. The
-  implementation must avoid an unbounded delete on every request, for example
-  by deleting only a bounded batch of expired rows.
-- Opportunistic cleanup is not complete session lifecycle management. An
-  inactive installation may retain expired rows until the next session creation.
-  This is a known property of the initial implementation.
-- Scheduled or batch cleanup is postponed to a later increment.
+Direct comparison of a submitted CSRF token with its stored value must use `secrets.compare_digest()`.
 
 ---
 
-## 6. Session Lifetime Settings
+### 5. Session Expiration, Revocation and Cleanup
 
-Two centralized settings control session expiration. The cookie `Max-Age`
-reflects the lifetime of the current session; the expiration itself is a
-server-side session concern, not a cookie concern.
+Every session has an absolute `expires_at` determined by its type when created.
 
-Initial architectural defaults:
+A session is invalid when the current time is at or after `expires_at`, regardless of recent activity. Sliding expiration is not included initially.
 
-- Authenticated session: `authenticated_session_ttl_seconds = 2592000` (30
-  days).
-- Anonymous pre-authentication session: `anonymous_session_ttl_seconds = 900`
-  (15 minutes).
+Revocation means deleting the session row. No `revoked_at` column or boolean revocation flag is introduced without a concrete auditing requirement.
 
-Both values are centralized settings and may be configured later.
+- Logout deletes the current authenticated session.
+- A future password-change workflow must delete every authenticated session belonging to the affected user.
+- Expired anonymous and authenticated rows are eligible for cleanup.
+
+Bounded opportunistic cleanup may run when creating a session. It must not perform an unbounded deletion on every request. For example, each cleanup operation may delete only a limited batch of expired rows.
+
+Cleanup is maintenance work independent of authentication transitions:
+
+- Cleanup failure must not invalidate an authentication transaction that has already committed.
+- Cleanup must not prevent the response from setting the authenticated cookie.
+- An inactive installation may retain expired rows until another session is created.
+
+Scheduled or batch cleanup is postponed.
 
 ---
 
-## 7. Session Cookie Name and Security Attributes
+### 6. Session Lifetime Settings
 
-Cookie name: `nfc_hub_session`, configured through `session_cookie_name`
-(`NFC_HUB_SESSION_COOKIE_NAME`).
+Two centralized settings determine session lifetime:
 
-Security attributes:
+- `authenticated_session_ttl_seconds = 2592000` — 30 days.
+- `anonymous_session_ttl_seconds = 900` — 15 minutes.
 
-- `HttpOnly` — the cookie cannot be read by JavaScript.
-- `SameSite=Lax` — the cookie is not sent on cross-site POST requests,
-  complementing the CSRF token check.
-- `Path=/` — the cookie applies to the whole application.
-- No `Domain` attribute — the cookie is host-only.
-- `Max-Age` set to the lifetime of the session being established, with a
-  matching `Expires`.
-- `Secure` — behavior defined in section 8.
+The server-side `expires_at` value is authoritative. Cookie `Max-Age` and `Expires` reflect the corresponding session lifetime but do not replace server-side expiration checks.
 
-The same cookie name and construction are used for anonymous and authenticated
-sessions.
+---
 
-The cookie value is the raw session token. It must not be:
+### 7. Session Cookie Configuration
 
-- Reused for any other purpose.
+The default cookie name is `nfc_hub_session`.
+
+Cookie attributes:
+
+- `HttpOnly`
+- `SameSite=Lax`
+- `Path=/`
+- No `Domain` attribute, making the cookie host-only.
+- `Max-Age` matching the session type.
+- `Expires` matching `Max-Age`.
+- `Secure` according to the centralized setting described below.
+
+Anonymous and authenticated sessions use the same cookie name but always use different raw token values.
+
+The cookie value must never be:
+
+- Reused for another purpose.
 - Used as the CSRF token.
 - Stored in the database.
 - Logged.
 
 ---
 
-## 8. The Secure Attribute in Development and Production
+### 8. Centralized Session and Cookie Settings
 
-Decision: cookie security behavior must be centralized into application
-settings, not expressed as ad-hoc string comparisons scattered across route or
-middleware code.
+Cookie security behavior must be centralized rather than implemented through repeated environment comparisons in routes or dependencies.
 
-Requirements:
-
-- A dedicated centralized setting, `session_cookie_secure`
-  (`NFC_HUB_SESSION_COOKIE_SECURE`), controls whether session cookies carry
-  `Secure`.
-- Production requires `session_cookie_secure = True`. In a production
-  environment the application must fail fast if secure cookies cannot be
-  honored, rather than silently weakening the attribute.
-- Local development over plain HTTP may use `session_cookie_secure = False`,
-  because the `Secure` attribute would prevent cookies from being sent.
-- The implementation may derive the default from the configured environment,
-  but cookie construction must consume the dedicated centralized setting, not
-  repeated `environment == "production"` comparisons.
-
-Settings summary:
-
-| Environment variable | Centralized setting | Default | Notes |
+| Environment variable | Setting | Initial default | Requirement |
 | --- | --- | --- | --- |
-| `NFC_HUB_SESSION_COOKIE_NAME` | `session_cookie_name` | `nfc_hub_session` | Cookie name for both session types |
-| `NFC_HUB_SESSION_COOKIE_SECURE` | `session_cookie_secure` | `False` in development | Required `True` in production |
+| `NFC_HUB_SESSION_COOKIE_NAME` | `session_cookie_name` | `nfc_hub_session` | Used for both session types |
+| `NFC_HUB_SESSION_COOKIE_SECURE` | `session_cookie_secure` | `False` in development | Must be `True` in production |
 | `NFC_HUB_AUTHENTICATED_SESSION_TTL_SECONDS` | `authenticated_session_ttl_seconds` | `2592000` | 30 days |
 | `NFC_HUB_ANONYMOUS_SESSION_TTL_SECONDS` | `anonymous_session_ttl_seconds` | `900` | 15 minutes |
 
+Production must fail fast if secure cookies are not enabled.
+
+Local development over plain HTTP may set `session_cookie_secure = False`, because browsers do not send `Secure` cookies over plain HTTP.
+
+Cookie construction must consume the centralized settings and must not contain scattered checks such as `environment == "production"`.
+
 ---
 
-## 9. Password Hashing Library and Algorithm
+### 9. Password Hashing
 
 Package: `argon2-cffi`.
 
 Algorithm: Argon2id.
 
-Why Argon2id:
+Initial parameters:
 
-- It is the OWASP recommended password hashing algorithm.
-- It is memory-hard, which raises the cost of brute-force attacks with parallel
-  hardware.
-- The reference implementation is well maintained.
+```text
+memory_cost=19456 KiB
+time_cost=2
+parallelism=1
+```
 
-Why `argon2-cffi` directly:
+These parameters are centralized in a dedicated password service.
 
-- It produces a self-describing hash string that embeds the algorithm, version
-  and parameters.
-- It provides `PasswordHasher.hash()`, `PasswordHasher.verify()` and
-  `PasswordHasher.check_needs_rehash()`, covering the full hashing lifecycle.
-- A small dedicated password service isolates the library. A wrapper such as
-  `pwdlib` is unnecessary for the single algorithm used here.
+`argon2-cffi` provides:
 
-The library generates a random salt for every hash. The application never
-manages salts.
+- `PasswordHasher.hash()`
+- `PasswordHasher.verify()`
+- `PasswordHasher.check_needs_rehash()`
 
-The dependency must be added in the next coding increment and justified in
-`pyproject.toml`.
+The library generates a new random salt for every password hash. The application never generates or manages salts itself.
 
----
+The resulting self-describing hash contains the algorithm version and parameters, allowing future changes without a database-schema migration.
 
-## 10. Recommended Argon2id Parameter-Management Strategy
+The initial parameters must be benchmarked on the deployment hardware. They may be increased when sufficient performance margin exists. Any reduction below the selected security baseline must be treated as an explicit, measured deployment exception rather than an automatic response to slow hardware.
 
-Initial baseline (OWASP minimum recommendation for Argon2id):
+Parameters used to create new hashes remain controlled by the application. If protection against abnormally expensive legacy or manipulated hashes is required, validation must be implemented deliberately because verification parameters are encoded in each stored hash.
 
-- `memory_cost = 19456 KiB` (19 MiB).
-- `time_cost = 2`.
-- `parallelism = 1`.
-
-These are the starting point for the initial implementation, not a fixed
-production target.
-
-Management rules:
-
-- The parameters are declared once as a documented constant in the password
-  service, not scattered over registration, login and verification code.
-- The parameters are embedded in every self-describing hash string.
-- The parameters must be benchmarked on the actual deployment hardware before
-  production use. They may be increased over the baseline without changing the
-  architecture, the session strategy, the database schema or the rest of the
-  design.
-- Because the column stores only the composed hash string, parameter changes do
-  not require a schema migration.
-- Each password gets a fresh random salt, so identical passwords produce
-  different hashes.
-- A reasonable upper bound for memory and time must be enforced when hashing or
-  verifying to avoid excessive resource use on the server.
+The dependency is added and documented in `pyproject.toml` during the next coding increment.
 
 ---
 
-## 11. Password Verification and Future Hash Upgrades
+### 10. Password Verification and Hash Upgrades
 
-Verification:
+Password verification uses the library's secure verification mechanism through `PasswordHasher.verify()`.
 
-- Password verification is implemented by the library's secure verification
-  mechanism (`PasswordHasher.verify()`).
-- If the email is not found or the user is inactive, the application still runs
-  verification against a fixed dummy hash so that observable differences
-  between existing and unknown accounts are reduced. This is a defense against
-  user enumeration through response differences; it does not claim constant
-  execution time for the complete login response.
+If the email is unknown or the account is inactive, verification still runs against a fixed valid dummy hash. This reduces observable timing differences between existing and unknown accounts without claiming that the complete login response has constant execution time.
 
-Future hash upgrades:
+After successful verification:
 
-- After a successful verification, `check_needs_rehash()` detects that the
-  stored hash does not match the currently configured parameters.
-- If the hash is stale, the password is rehashed with the current parameters
-  and the new value is stored in the existing `password_hash` column, which
-  causes the `User.updated_at` timestamp to update. No schema change and no new
-  model field are needed.
-- This covers both parameter increases (section 10) and a future algorithm
-  change expressed through the hash's algorithm prefix.
-- Explicit migration between multiple supported algorithms is postponed;
-  recognizing stale hashes is required behavior from the start.
+1. Call `check_needs_rehash()`.
+2. If required, hash the submitted password with the current parameters.
+3. Persist the replacement value in `password_hash`.
+
+The existing `User.updated_at` timestamp should reflect the update.
+
+This supports parameter changes and future algorithm migration through the self-describing hash format. Supporting several algorithms simultaneously is postponed.
 
 ---
 
-## 12. Anonymous Pre-Authentication Sessions
+### 11. Anonymous Pre-Authentication Sessions
 
-Anonymous sessions exist only to provide CSRF protection on the registration
-and login forms, which are submitted before any authenticated session exists.
+Anonymous sessions provide CSRF protection before authentication exists.
 
-Lifecycle:
+When an unauthenticated visitor requests `GET /login` or `GET /register`:
 
-1. `GET /login` or `GET /register` obtains or creates an anonymous session when
-   no valid session cookie exists.
-2. The anonymous row has `user_id IS NULL`, a fresh `csrf_token`, and
-   `expires_at` derived from `anonymous_session_ttl_seconds`.
-3. The session cookie is set with the anonymous token, so the form can be
-   rendered with the CSRF token as a hidden value.
-4. The anonymous session is destroyed when the user authenticates or registers
-   (sections 13 and 14).
+1. Resolve any existing valid anonymous session.
+2. Create one if none exists.
+3. Store `user_id IS NULL`.
+4. Generate a fresh session token and CSRF token.
+5. Set `expires_at` from `anonymous_session_ttl_seconds`.
+6. Set the anonymous session cookie.
+7. Render the CSRF token as a hidden form value.
 
 Rules:
 
-- An anonymous session can never authorize access to protected resources
-  (section 3).
-- The anonymous token, CSRF token and database row never survive privilege
-  elevation.
-- On a failed login or registration the anonymous row may be kept so the form
-  can re-render, but it must never become authenticated.
+- Anonymous sessions never authorize protected resources.
+- Failed login or registration may retain the anonymous session so the form can be rendered again.
+- Successful login or registration deletes the anonymous row.
+- Its session token, CSRF token and row are never reused.
+- The authenticated session receives a new session token, new CSRF token and new database row.
 
-This design protects against session fixation: an attacker-supplied token can
-never become an authenticated session, because authentication never promotes
-the anonymous row and always issues fresh tokens.
+This prevents session fixation because an attacker-controlled anonymous token can never become authenticated.
 
-Already-authenticated visitors:
+If `GET /login` or `GET /register` receives a valid authenticated session, it must:
 
-- `GET /login` and `GET /register` redirect an already-authenticated user to the
-  authenticated management entry point.
-- They must not create an anonymous session and must not overwrite a valid
-  authenticated cookie.
-- Anonymous sessions are created only when no valid authenticated session exists
-  and a pre-authentication form requires CSRF protection.
+- Redirect to the authenticated management entry point.
+- Preserve the authenticated cookie.
+- Not create an anonymous session.
 
 ---
 
-## 13. Login Lifecycle
+### 12. Login Lifecycle
 
 Routes:
 
-- `GET /login` — renders the login form. It obtains or creates an anonymous
-  session (unless the visitor is already authenticated; see section 12) and
-  exposes its CSRF token as a hidden form value.
-- `POST /login` — validates the form, verifies credentials, and establishes an
-  independent authenticated session.
+- `GET /login` renders the CSRF-protected login form.
+- `POST /login` verifies the form and establishes an authenticated session.
 
-Successful login:
+A successful login follows this order:
 
-1. Resolve the anonymous pre-authentication session.
-2. Validate its CSRF token (section 16).
-3. Verify the credentials (section 11). Timing-equalizing verification runs
-   against a dummy hash when the email is unknown or the user is inactive.
-4. Generate a new independent authenticated session token and a new independent
-   CSRF token.
-5. Perform the database transition atomically: delete the anonymous session row
-   and create the new authenticated session row (non-null `user_id`, `expires_at`
-   from `authenticated_session_ttl_seconds`) as one transaction. If creation
-   fails, the transaction rolls back and the anonymous session is not partially
-   removed.
-6. Replace the browser cookie with the new authenticated session token and the
-   attributes from sections 7 and 8, only after the transaction has committed.
-7. Run bounded opportunistic cleanup of expired rows.
-8. Redirect to the authenticated management interface, only after the cookie has
-   been set.
+1. Resolve and validate the anonymous session.
+2. Validate the submitted CSRF token.
+3. Normalize the email address.
+4. Verify the credentials or run dummy-hash verification.
+5. Generate a fresh authenticated session token.
+6. Generate a fresh authenticated CSRF token.
+7. Atomically:
+   - Delete the anonymous session row.
+   - Insert the authenticated session row with non-null `user_id`.
+   - Set `expires_at` from `authenticated_session_ttl_seconds`.
+   - Commit both persistence changes as one transaction.
+8. Roll back the complete transaction if the authenticated session cannot be created.
+9. Replace the browser cookie only after the transaction commits.
+10. Redirect with `303 See Other` only after setting the cookie.
+11. Optionally run bounded cleanup independently of the completed authentication transition.
 
-Failed login:
+A failed login:
 
-- A generic failure message ("Invalid credentials") is shown regardless of
-  whether the email does not exist, the password does not match, or the account
-  is inactive. No response reveals whether the email is registered.
-- No authenticated session is created. The anonymous session may be retained so
-  the form can re-render.
-- Login attempts are logged without sensitive values (section 20).
+- Returns the generic message `Invalid credentials`.
+- Does not reveal whether the email exists, the password is wrong or the account is inactive.
+- Creates no authenticated session or authenticated cookie.
+- May retain the anonymous session to re-render the form.
+- Logs the outcome without sensitive values.
+
+The anonymous row and token are never promoted or reused.
 
 ---
 
-## 14. Registration Lifecycle
+### 13. Registration Lifecycle
 
 Routes:
 
-- `GET /register` — renders the registration form. It obtains or creates an
-  anonymous session (unless the visitor is already authenticated; see section
-  12) and exposes its CSRF token as a hidden form value.
-- `POST /register` — validates the form, creates the user, and establishes an
-  independent authenticated session.
+- `GET /register` renders the CSRF-protected registration form.
+- `POST /register` validates the form, creates the user and establishes an authenticated session.
 
-Successful registration:
+A successful registration follows this order:
 
-1. Resolve the anonymous pre-authentication session.
-2. Validate its CSRF token.
-3. Normalize the email address and enforce uniqueness. Duplicate submissions
-   must be handled generically (below).
-4. Validate the password according to the currently defined rules and hash it
-   with Argon2id using the parameters from section 10.
-5. Generate a new independent authenticated session token and a new independent
-   CSRF token.
-6. Perform the database transition atomically: create the new `User`, delete the
-   anonymous session row, and create the new authenticated session row
-   (non-null `user_id`, `expires_at` from
-   `authenticated_session_ttl_seconds`) as one transaction. Any failure rolls
-   back the complete transition; the anonymous session is not partially removed.
-7. Replace the browser cookie with the new authenticated session token, only
-   after the transaction has committed.
-8. Run opportunistic cleanup of expired rows.
-9. Redirect only after the cookie has been set.
+1. Resolve and validate the anonymous session.
+2. Validate the submitted CSRF token.
+3. Normalize the email address.
+4. Validate uniqueness.
+5. Validate the password according to rules already defined elsewhere.
+6. Hash the password with Argon2id.
+7. Generate a fresh authenticated session token.
+8. Generate a fresh authenticated CSRF token.
+9. Atomically:
+   - Insert the new user.
+   - Delete the anonymous session row.
+   - Insert the authenticated session row with non-null `user_id`.
+   - Set `expires_at` from `authenticated_session_ttl_seconds`.
+   - Commit all persistence changes as one transaction.
+10. Roll back the complete transaction if any persistence operation fails.
+11. Replace the browser cookie only after the transaction commits.
+12. Redirect with `303 See Other` only after setting the cookie.
+13. Optionally run bounded cleanup independently of the completed registration transition.
 
-Duplicate-email handling:
+Duplicate-email handling must remain generic enough to avoid unnecessary account enumeration. The response may direct the visitor to login without confirming whether an account exists.
 
-- The response on a duplicate email must remain generic enough to avoid
-  unnecessary account enumeration. The user is directed to the login workflow
-  without asserting whether the account already exists.
+A failed registration creates:
 
-Failure:
+- No committed user when the transaction fails.
+- No authenticated session.
+- No authenticated cookie.
 
-- A failed registration creates no authenticated session and no authenticated
-  session cookie.
-
-No broader password policy is defined by this document. Only the constraints
-already defined elsewhere in the repository apply, and any further minimum
-requirements are decided during implementation.
+This document does not introduce a broader password policy.
 
 ---
 
-## 15. Logout Lifecycle
+### 14. Logout Lifecycle
 
 Logout must:
 
-- Accept only `POST`.
-- Require a valid authenticated session.
-- Require a valid CSRF token.
-- Delete only the current authenticated session row.
-- Clear the cookie using:
+1. Accept only `POST`.
+2. Require a valid authenticated session.
+3. Require a valid CSRF token.
+4. Delete only the current authenticated session row.
+5. Clear the session cookie.
+6. Redirect to a public page with `303 See Other`.
 
-  - The same cookie name.
-  - The same `Path`.
-  - The same `Domain` behavior. This design sets no `Domain`, so the cookie
-    remains host-only.
-  - `Max-Age=0`.
-  - An expiration date in the past.
+Clearing the cookie must use:
 
-  `Secure`, `HttpOnly` and `SameSite` may be kept consistent when generating the
-  deletion header, but cookie identity for removal is determined primarily by
-  name, path and domain.
-- Not create a replacement anonymous session during the logout response.
-- Redirect to a public page after completion.
+- The same cookie name.
+- The same `Path`.
+- The same `Domain` behavior. NFC Hub does not set `Domain`, so the deletion cookie remains host-only.
+- `Max-Age=0`.
+- An expiration date in the past.
 
-A later `GET /login` or `GET /register` may create a new anonymous session when
-needed.
+`Secure`, `HttpOnly` and `SameSite` should remain consistent when constructing the deletion header, although cookie identity is determined by name, path and domain.
 
-Because the authenticated row is deleted, a copied cookie value has no effect
-after logout.
+Logout must not create an anonymous replacement session. A later request to `GET /login` or `GET /register` may create one when required.
 
-Future: a password change must delete all sessions belonging to the affected
-user.
+After the row is deleted, a copied cookie token no longer resolves to a valid session.
 
 ---
 
-## 16. CSRF Protection for Server-Rendered Forms
+### 15. CSRF Protection
 
-Mechanism: synchronizer token pattern.
+NFC Hub uses the synchronizer-token pattern for server-rendered forms.
 
-- Every state-changing server-rendered form carries a hidden field with the
-  current session's CSRF token.
-- The CSRF token is generated with `secrets.token_urlsafe(32)`, stored
-  server-side as part of the session row, and regenerated whenever a new session
-  is created.
-- The token is never placed in the session cookie. It reaches the browser only
-  as a hidden form value.
-- On submission the submitted value is compared with the stored `csrf_token`
-  using `secrets.compare_digest()` (constant-time). A missing token, missing
-  session, or mismatch returns a generic error.
-- The same mechanism covers the login and registration forms through the
-  anonymous pre-authentication session, so a single CSRF mechanism is used
-  across the whole application.
-- `SameSite=Lax` complements the token check; both together protect
-  state-changing requests.
-- The CSRF check applies to every state-changing form, including logout and all
-  future tag-management forms.
+Every state-changing form must include the current session's CSRF token in a hidden field.
 
----
+The CSRF token:
 
-## 17. Authentication and Authorization Dependencies for FastAPI
+- Is generated with `secrets.token_urlsafe(32)`.
+- Is stored server-side in the session row.
+- Is regenerated for every new session.
+- Is never stored in the session cookie.
+- Is never logged.
 
-Dependencies provided by the authentication module:
+On submission:
 
-- `get_current_session` — resolves the raw cookie value, hashes it with
-  SHA-256, queries the `token_hash` column, and returns the session row if it is
-  valid and not expired. It resolves the session once per request so that
-  authentication and CSRF checks share it. A session with `user_id IS NULL` is
-  not an authenticated session.
-- `resolve_current_user` — the core resolver. It depends on
-  `get_current_session`, requires an authenticated session with non-null
-  `user_id`, resolves the `User`, and rejects inactive users. It returns the
-  authenticated user or indicates that authentication is absent or invalid; it
-  never performs redirects and never returns HTTP responses.
-- `require_page_user` — the server-rendered-page dependency. It wraps
-  `resolve_current_user` and redirects (302) unauthenticated requests to
-  `/login`.
-- `require_api_user` — the API-oriented dependency. It wraps
-  `resolve_current_user` and returns `401 Unauthorized` for unauthenticated
-  requests.
-- `require_csrf` — a dependency for all state-changing `POST` forms that
-  verifies the hidden field against the session's `csrf_token` with
-  `secrets.compare_digest()`.
-- `get_anonymous_session` — used by the login and registration pages to obtain
-  or create the anonymous pre-authentication session.
+1. Resolve the session once.
+2. Read the submitted CSRF value.
+3. Compare it with the stored token using `secrets.compare_digest()`.
+4. Reject missing sessions, missing tokens and mismatches with a generic error.
 
-`resolve_current_user` is the single source of truth for "who is the current
-user". `require_page_user` and `require_api_user` differ only in how they
-present an authentication failure and must never duplicate the resolution
-logic.
+The same mechanism protects:
 
-All dependencies consume the centralized session and cookie settings (sections
-5, 6, 7 and 8); they do not compare `environment == "production"` inline.
+- Login.
+- Registration.
+- Logout.
+- Future state-changing management forms.
+
+`SameSite=Lax` complements but does not replace CSRF-token validation.
+
+The synchronizer-token pattern is preferred because NFC Hub already maintains server-side session state and can bind each CSRF token directly to its session.
 
 ---
 
-## 18. Application Secret Configuration
+### 16. FastAPI Authentication Dependencies
 
-The chosen design does not require a shared application secret:
+The authentication module must separate session resolution from presentation-specific failure behavior.
 
-- Session tokens are random and only their hashes are stored.
-- Password hashes use Argon2 salts.
+Proposed responsibilities:
+
+- `get_current_session`
+  - Reads the raw cookie.
+  - Hashes it with SHA-256.
+  - Resolves the session by `token_hash`.
+  - Rejects expired sessions.
+  - Resolves the session only once per request so authentication and CSRF validation can share it.
+
+- `resolve_current_user`
+  - Uses the resolved session.
+  - Requires non-null `user_id`.
+  - Resolves the corresponding user.
+  - Rejects inactive users.
+  - Returns the authenticated user or an internal absent/invalid result.
+  - Does not redirect or construct an HTTP response.
+
+- `require_page_user`
+  - Wraps the core resolver for server-rendered pages.
+  - Redirects unauthenticated requests to `/login`.
+
+- `require_api_user`
+  - Wraps the core resolver for API endpoints.
+  - Returns `401 Unauthorized` when authentication is absent or invalid.
+
+- `require_csrf`
+  - Validates the hidden form value against the resolved session's CSRF token.
+
+- `get_anonymous_session`
+  - Resolves or creates the anonymous session required by login and registration forms.
+  - Never replaces a valid authenticated session.
+
+The final names may follow existing project conventions, but page and API failure behavior must remain explicit and independently testable.
+
+---
+
+### 17. Application Secrets
+
+The selected authentication design does not require an application-wide signing secret:
+
+- Session tokens are random and only their hashes are persisted.
+- Password hashes contain Argon2-generated salts.
 - CSRF tokens are random and stored server-side.
 
-There is therefore no server key to protect, rotate or leak. No secret is
-generated, committed, or required by this design.
+If a future feature requires signed or encrypted values, such as password-recovery tokens:
 
-Rule for future features that need a signed or encrypted value (for example,
-email-based password-recovery tokens):
-
-- Add a dedicated centralized setting loaded from an environment variable (for
-  example `NFC_HUB_CRYPTO_KEY`).
-- The value comes from the environment, never from a default, and a missing or
-  weak value must fail fast at startup in a production environment.
-- Never commit secrets, create `.env` files, or log the value.
+- Add a dedicated centralized setting loaded from an environment variable.
+- Do not provide a production default.
+- Fail fast in production if the value is missing or invalid.
+- Never commit or log the value.
+- Do not create or commit `.env` files containing secrets.
 
 ---
 
-## 19. Ownership Verification for Future NFC Tag Operations
+### 18. Authorization for Future NFC Tag Operations
 
-Model:
+Every tag-management operation must derive the current user from the authenticated session.
 
-- Every tag-management operation resolves the current user through
-  `require_page_user` (or `resolve_current_user`) (section 17).
-- The future tag service requires both the tag identifier and the current user,
-  and scopes every query by `user_id`.
-- The service never accepts an owner identifier from the client; the owner is
-  derived exclusively from the authenticated session.
+Rules:
 
-Behavior:
+- The service receives the authenticated user from the authentication dependency.
+- Queries are scoped by both the tag identifier and `user_id`.
+- The client never supplies the authoritative owner identifier.
+- A tag owned by another user is treated as not found with `404 Not Found`, avoiding disclosure of its existence.
 
-- A tag that exists but is not owned by the current user is treated as not
-  found (HTTP 404), not as forbidden (HTTP 403), to avoid revealing which tags
-  exist.
-- The public resolution route `GET /t/{token}` must never authenticate the
-  visitor. It resolves only the public behavior, never management capabilities,
-  and never uses session state.
+The public route `GET /t/{token}`:
+
+- Does not authenticate the visitor.
+- Does not grant management access.
+- Resolves only public behavior.
+- Does not treat the public token or NFC contents as proof of identity.
 
 ---
 
-## 20. Error Handling, Logging and Sensitive-Data Protection
+### 19. Logging and Sensitive-Data Protection
 
-- User-facing errors are generic and never include stack traces or internal
-  details.
-- The following values must never be logged:
+User-facing errors must be generic and must not expose stack traces or internal details.
 
-  - Passwords.
-  - Password hashes.
-  - Raw session tokens.
-  - Session-token hashes.
-  - CSRF tokens.
+Never log:
 
-- Log instead operational identifiers only:
+- Passwords.
+- Password hashes.
+- Raw session tokens.
+- Session-token hashes.
+- CSRF tokens.
 
-  - The session row `id` (the internal primary key), never the token or its
-    hash.
-  - The user id when known.
-  - Client IP and outcome for login and registration attempts.
+Operational logs may include:
 
-- `debug` remains disabled in production.
-- Sensitive values are stored only when the selected architecture explicitly
-  requires them:
+- The internal session-row `id`.
+- The user `id` when known.
+- Client IP address.
+- Login or registration outcome.
 
-  - Passwords and raw session tokens are never persisted.
-  - Password hashes and session-token hashes are persisted as required by the
-    design but are never logged.
-  - CSRF tokens are persisted server-side as required by the synchronizer-token
-    pattern but are never logged and never placed in the session cookie.
+Storage rules:
+
+- Passwords and raw session tokens are never persisted.
+- Password hashes and session-token hashes are persisted as required but never logged.
+- CSRF tokens are persisted server-side as required by the synchronizer-token design but never logged or placed in the session cookie.
+- Sensitive values are persisted only when explicitly required by the architecture.
+
+Production runs with debug mode disabled.
 
 ---
 
-## 21. Testing Strategy
+### 20. Testing Strategy
 
-The next coding increment must add automated tests that follow the existing
-repository conventions:
+Tests must follow the existing repository conventions:
 
 - Isolated in-memory or temporary databases.
-- Settings-cache cleaning through the existing `conftest.py` fixture.
+- Settings-cache clearing through the existing `conftest.py` fixture.
 - FastAPI `TestClient` with cookie handling.
+- No external services.
+- No creation or modification of `nfc_hub.db`.
 
 Required coverage:
 
-- Hashing: unique salt per hash, verification success and failure, rehash
-  detection.
-- Session tokens: sufficient length, URL-safe format, only the hash stored.
-- Session states: anonymous rows always have `user_id IS NULL`, authenticated
-  rows always have non-null `user_id`, and no intermediate state is produced.
-- Anonymous sessions: short lifetime (`anonymous_session_ttl_seconds`), cannot
-  authorize protected resources.
-- Cookie attributes: `HttpOnly`, `SameSite`, `Path`, `Secure` behavior per
-  settings, `Max-Age` reflecting the session type.
-- Session lookup: valid, missing, expired, anonymous, and authenticated
-  sessions.
-- Authentication dependencies: missing, invalid or expired session, inactive
-  user, anonymous session rejected.
-- CSRF: missing, wrong, tampered value, and valid match.
-- Login: success creates a new independent authenticated session and cookie;
-  anonymous row is deleted; generic failure for wrong password and unknown
-  email; inactive user is rejected.
-- Registration: success creates the user transactionally, deletes the anonymous
-  row, and creates an authenticated session; duplicate email is handled
-  generically; failure creates no authenticated session.
-- Logout: only `POST`, deletes only the current authenticated row, clears the
-  cookie, and creates no anonymous session in the same response (section 15).
-- Future tag ownership boundaries are tested in the tag increment with the same
-  matrix.
+#### Password hashing
 
-Tests never create or modify `nfc_hub.db` and never depend on external services.
-The existing 40 tests must continue to pass.
+- Different salts produce different hashes for the same password.
+- Correct passwords verify successfully.
+- Incorrect passwords fail.
+- Stale parameters trigger rehash detection.
+- Unknown or inactive users execute dummy-hash verification.
+
+#### Session tokens and states
+
+- Tokens have sufficient entropy and URL-safe format.
+- Only token hashes are persisted.
+- Anonymous sessions always have `user_id IS NULL`.
+- Authenticated sessions always have non-null `user_id`.
+- No intermediate state is produced.
+- Anonymous sessions cannot authorize protected resources.
+- Missing, unknown and expired sessions are rejected.
+
+#### Cookies
+
+- Correct name, `HttpOnly`, `SameSite`, `Path`, `Secure`, `Max-Age` and `Expires`.
+- Anonymous and authenticated lifetimes differ.
+- Production rejects insecure cookie configuration.
+- Cookie deletion uses matching name, path and domain behavior.
+
+#### CSRF
+
+- Missing session.
+- Missing token.
+- Incorrect or tampered token.
+- Valid constant-time comparison.
+- Coverage for login, registration and logout.
+
+#### Login
+
+- Success deletes the anonymous row and inserts a fresh authenticated row atomically.
+- The authenticated token and CSRF token differ from the anonymous values.
+- Transaction failure preserves the anonymous session and creates no authenticated session.
+- The cookie changes only after commit.
+- Wrong password, unknown email and inactive account receive generic failures.
+- Successful POST redirects with `303 See Other`.
+
+#### Registration
+
+- Success creates the user and authenticated session while deleting the anonymous row atomically.
+- Duplicate email receives a generic response.
+- Transaction failure commits neither user nor authenticated session.
+- The cookie changes only after commit.
+- Successful POST redirects with `303 See Other`.
+
+#### Authenticated visitors
+
+- `GET /login` and `GET /register` redirect authenticated users.
+- Their authenticated cookie is not overwritten.
+- No anonymous session is created.
+
+#### Dependencies
+
+- Page dependencies redirect unauthenticated requests.
+- API dependencies return `401 Unauthorized`.
+- Anonymous, expired and inactive-user sessions are rejected.
+
+#### Logout
+
+- Only `POST` is accepted.
+- Authentication and CSRF are required.
+- Only the current session is deleted.
+- The cookie is cleared correctly.
+- No anonymous session is created in the logout response.
+- The redirect uses `303 See Other`.
+
+Future tag-ownership tests belong to the tag-management increment.
+
+All existing tests must continue to pass.
 
 ---
 
-## 22. Explicitly Rejected Alternatives
+### 21. Rejected Alternatives
 
-1. **JWT tokens.** Rejected: revocation is hard, payloads are not immediately
-   invalid, and shared signing secrets are unnecessary complexity. A server-side
-   session provides immediate, deterministic revocation.
-2. **Client-side signed cookies (Flask-style session).** Rejected: revocation
-   requires versioned signed values, payload grows with session data, and a
-   signing secret must be managed. A server-side session keeps client data and
-   revocation simple.
-3. **In-memory or Redis-only sessions.** Rejected: Redis belongs to a later
-   deployment phase and would lose sessions on restart. Database sessions are
-   persistent and consistent with the existing storage stack.
-4. **bcrypt or PBKDF2.** Rejected in favor of Argon2id, the OWASP recommended
-   memory-hard algorithm, whose reference library covers hashing, verification
-   and rehash detection.
-5. **Double-submit CSRF without server-side storage.** Rejected: it depends on
-   the client presenting a second value and cannot be invalidated
-   deterministically. A stored per-session token is stricter.
-6. **Authentication by NFC tag UID or content.** Rejected explicitly in
-   `AGENT.md` and `PROJECT.md`: UIDs and URLs are reproducible and must not be
-   treated as proof of identity.
-7. **Treating public NFC URLs as secret.** Rejected: a copied public URL must
-   never grant management access. The public route only resolves public state.
-8. **OAuth social login, email verification and recovery, MFA, per-role
-   authorization.** Rejected for the MVP: all remain outside the current scope.
-9. **Sliding session expiration.** Rejected for the initial implementation;
-   absolute expiry is predictable, simple and sufficient.
-10. **Client-side or SPA authentication.** Rejected: the initial frontend is
-    server-rendered HTML forms with CSRF.
+1. **JWT authentication**
+
+   Rejected because it offers no useful advantage for the initial server-rendered monolith, complicates immediate revocation and introduces key management and claim-validation requirements. JWT can use symmetric or asymmetric cryptography; the rejection does not depend on assuming a shared secret.
+
+2. **Client-side signed session cookies**
+
+   Rejected because server-side sessions provide simpler revocation, smaller client state and no session-signing key requirement.
+
+3. **In-memory or Redis-backed sessions**
+
+   Rejected for the initial implementation because they introduce additional infrastructure and operational complexity. Redis can provide persistence when configured, but it is unnecessary for the current deployment architecture.
+
+4. **bcrypt or PBKDF2**
+
+   Rejected in favor of Argon2id and its memory-hard design.
+
+5. **Double-submit CSRF**
+
+   Rejected because the application already maintains server-side session state. A synchronizer token binds CSRF protection directly to the corresponding session and fits the existing architecture more naturally.
+
+6. **Authentication by NFC UID or NFC contents**
+
+   Rejected because identifiers and URLs can be copied and do not prove identity.
+
+7. **Treating public NFC URLs as secrets**
+
+   Rejected because possession of a public URL must never grant management access.
+
+8. **OAuth, social login, email verification, password recovery, MFA and role-based authorization**
+
+   Postponed beyond the MVP.
+
+9. **Sliding session expiration**
+
+   Rejected initially in favor of predictable absolute expiration.
+
+10. **SPA or client-side authentication**
+
+    Rejected because the initial frontend uses server-rendered HTML forms.
 
 ---
 
-## Requirements for the Next Coding Increment
+### 22. Next Coding Increment
 
-The next coding increment will include only:
+The next coding increment includes only:
 
 - Centralized authentication, session and cookie settings.
-- Password hashing and verification service (`argon2-cffi`, Argon2id).
+- `argon2-cffi` dependency and password service.
 - User registration.
 - Session persistence model.
 - Alembic migration for the `sessions` table.
+- Anonymous pre-authentication sessions.
 - Login and logout workflows.
-- CSRF protection required by those workflows.
-- FastAPI dependencies for resolving and requiring the authenticated user.
+- CSRF protection for those workflows.
+- Page-oriented and API-oriented authentication dependencies.
 - Automated tests for the implemented behavior.
 
-It must not include: NFC tag persistence, ownership implementation, password
-reset, account-management pages, rate limiting, MFA, OAuth, sliding sessions,
-scheduled cleanup jobs, or unrelated frontend work.
+It does not include:
+
+- NFC tag persistence or ownership implementation.
+- Password reset or account-management pages.
+- Rate limiting.
+- MFA or OAuth.
+- Sliding session expiration.
+- Scheduled cleanup jobs.
+- Unrelated frontend work.
 
 ---
 
-## Features Planned for Later
+### 23. Deferred Features
 
-- Rate limiting for login attempts.
+- Login rate limiting.
 - Sliding session renewal.
-- Per-session client metadata (IP, user agent, device name).
+- Per-session client metadata.
 - Scheduled or batch session cleanup.
 - Password reset and recovery.
-- Account-management pages and password change (which revokes all sessions).
-- Multi-algorithm password support beyond automatic rehashing.
-- Additional security headers beyond cookie attributes.
-- Abuse detection for public tag routes.
+- Email verification.
+- Account-management pages.
+- Password changes with global session revocation.
+- Additional password algorithms.
+- Additional security headers.
+- Abuse detection for public NFC routes.
 
----
-
-## Known Design Notes
-
-- Anonymous pre-authentication sessions use the 15-minute anonymous lifetime and
-  are included in opportunistic and future batch cleanup.
-- The exact redirect target for the authenticated management interface is a
-  route detail, not an architectural decision, and is resolved during route
-  implementation.
-- If the Argon2id baseline parameters prove slow on the deployment hardware,
-  higher values are allowed without an architectural change.
+The exact authenticated management redirect target is a route-level implementation detail and does not alter this architecture.
