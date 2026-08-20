@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session as DatabaseSession
+from sqlalchemy import select
 
 from nfc_hub.core.settings import AppSettings, get_settings
 from nfc_hub.core.tokens import generate_csrf_token, generate_session_token, hash_session_token
@@ -23,6 +24,15 @@ class CreatedSession:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Return a datetime normalized to timezone-aware UTC."""
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value.astimezone(timezone.utc)
 
 
 def create_session(db: DatabaseSession, *, user_id: int | None = None, settings: AppSettings | None = None) -> CreatedSession:
@@ -53,3 +63,27 @@ def create_session(db: DatabaseSession, *, user_id: int | None = None, settings:
         session_token=session_token,
         csrf_token=csrf_token,
     )
+
+
+
+def get_valid_session(
+    db: DatabaseSession,
+    session_token: str,
+) -> SessionModel | None:
+    """Return the matching session when it exists and has not expired."""
+
+    token_hash = hash_session_token(session_token)
+
+    session = db.execute(
+        select(SessionModel).where(
+            SessionModel.token_hash == token_hash
+        )
+    ).scalar_one_or_none()
+
+    if session is None:
+        return None
+
+    if _as_utc(session.expires_at) <= _utc_now():
+        return None
+
+    return session
