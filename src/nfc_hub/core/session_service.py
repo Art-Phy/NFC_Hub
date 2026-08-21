@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session as DatabaseSession
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from nfc_hub.core.settings import AppSettings, get_settings
 from nfc_hub.core.tokens import generate_csrf_token, generate_session_token, hash_session_token
@@ -87,3 +87,40 @@ def get_valid_session(
         return None
 
     return session
+
+
+
+def delete_session(
+        db: DatabaseSession,
+        session_token: str,
+) -> bool:
+    """Delete the session matching a client-side token"""
+
+    token_hash = hash_session_token(session_token)
+
+    session = db.execute(
+        select(SessionModel).where(
+            SessionModel.token_hash == token_hash
+        )
+    ).scalar_one_or_none()
+
+    if session is None:
+        return False
+
+    db.delete(session)
+    db.flush()
+
+    return True
+
+
+
+def delete_expired_sessions(db: DatabaseSession) -> int:
+    """Delete expired sessions and return the affected row count"""
+
+    result = db.execute(
+        delete(SessionModel)
+        .where(SessionModel.expires_at <= _utc_now())
+        .execution_options(synchronize_session=False)
+    )
+
+    return result.rowcount
