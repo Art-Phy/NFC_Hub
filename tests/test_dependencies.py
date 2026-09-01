@@ -2,13 +2,13 @@
 from unittest.mock import Mock
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import nfc_hub.core.dependencies as dependencies_module
-from nfc_hub.core.dependencies import get_current_session, get_db
+from nfc_hub.core.dependencies import get_current_session, get_db, require_authenticated_user, require_session
 from nfc_hub.core.settings import AppSettings
-from nfc_hub.models import Session
+from nfc_hub.models import Session, User
 
 
 @pytest.fixture()
@@ -167,3 +167,96 @@ class TestCurrentSessionDependency:
             fake_db,
             "invalid-session-token",
         )
+
+
+
+class TestRequiredSession:
+    def test_returns_valid_session(self):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="csrf-token",
+        )
+
+        result = require_session(session)
+
+        assert result is session
+
+    def test_raises_unauthorized_without_session(self):
+        with pytest.raises(HTTPException) as exc_info:
+            require_session(None)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Valid session required"
+
+
+
+class TestAuthenticatedUser:
+    def test_returns_active_authenticated_user(self):
+        user = User(
+            id=7,
+            email="user@example.com",
+            password_hash="password-hash",
+            is_active=True,
+        )
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="csrf-token",
+            user_id=user.id,
+            user=user,
+        )
+
+        result = require_authenticated_user(session)
+
+        assert result is user
+
+    def test_rejects_anonymous_session(self):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="csrf-token",
+            user_id=None,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_authenticated_user(session)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Authentication required"
+
+    def test_rejects_session_without_loaded_user(self):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="csrf-token",
+            user_id=7,
+            user=None,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_authenticated_user(session)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Authentication required"
+
+    def test_rejects_inactive_user(self):
+        user = User(
+            id=7,
+            email="user@example.com",
+            password_hash="password-hash",
+            is_active=False,
+        )
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="csrf-token",
+            user_id=user.id,
+            user=user,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_authenticated_user(session)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == "User account is inactive"
