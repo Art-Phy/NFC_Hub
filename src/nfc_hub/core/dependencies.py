@@ -1,12 +1,14 @@
 
 from collections.abc import Generator
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session as DatabaseSession
+from typing import Annotated
 
 from nfc_hub.core.database import SessionLocal
 from nfc_hub.core.session_service import get_valid_session
 from nfc_hub.core.settings import get_settings
+from nfc_hub.core.tokens import verify_csrf_token
 from nfc_hub.models.session import Session as SessionModel
 from nfc_hub.models.user import User
 
@@ -72,3 +74,25 @@ def require_authenticated_user(
         )
 
     return current_session.user
+
+
+
+def require_csrf_token(
+        current_session: SessionModel = Depends(require_session),
+        csrf_token: Annotated[
+            str | None,
+            Header(alias="X-CSRF-Token"),
+        ] = None,
+) -> SessionModel:
+    """Require a valid CSRF token for the current session"""
+
+    if csrf_token is None or not verify_csrf_token(
+        csrf_token,
+        current_session.csrf_token,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF token",
+        )
+
+    return current_session

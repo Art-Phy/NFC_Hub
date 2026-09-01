@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import nfc_hub.core.dependencies as dependencies_module
-from nfc_hub.core.dependencies import get_current_session, get_db, require_authenticated_user, require_session
+from nfc_hub.core.dependencies import get_current_session, get_db, require_authenticated_user, require_session, require_csrf_token
 from nfc_hub.core.settings import AppSettings
 from nfc_hub.models import Session, User
 
@@ -260,3 +260,99 @@ class TestAuthenticatedUser:
 
         assert exc_info.value.status_code == 403
         assert exc_info.value.detail == "User account is inactive"
+
+
+
+class TestCsrfProtection:
+    def test_returns_session_for_matching_token(self):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="expected-csrf-token",
+        )
+
+        result = require_csrf_token(
+            session,
+            "expected-csrf-token",
+        )
+
+        assert result is session
+
+    def test_rejects_missing_token(self):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="expected-csrf-token",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_csrf_token(session, None)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == "Invalid CSRF token"
+
+    def test_rejects_different_token(self):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="expected-csrf-token",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_csrf_token(
+                session,
+                "different-csrf-token",
+            )
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == "Invalid CSRF token"
+
+    def test_uses_timing_safe_verification(self, monkeypatch):
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="expected-csrf-token",
+        )
+        verify_mock = Mock(return_value=True)
+
+        monkeypatch.setattr(
+            dependencies_module,
+            "verify_csrf_token",
+            verify_mock,
+        )
+
+        require_csrf_token(
+            session,
+            "received-csrf-token",
+        )
+
+        verify_mock.assert_called_once_with(
+            "received-csrf-token",
+            "expected-csrf-token",
+        )
+
+    def test_reads_token_from_expected_header(self):
+        test_app = FastAPI()
+        session = Session(
+            id=42,
+            token_hash="a" * 64,
+            csrf_token="expected-csrf-token",
+        )
+
+        test_app.dependency_overrides[require_session] = lambda: session
+
+        @test_app.post("/protected")
+        def protected_endpoint(
+            current_session: Session = Depends(require_csrf_token),
+        ):
+            return {"session_id": current_session.id}
+
+        test_client = TestClient(test_app)
+
+        response = test_client.post(
+            "/protected",
+            headers={"X-CSRF-Token": "expected-csrf-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"session_id": 42}
