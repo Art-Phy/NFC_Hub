@@ -3,10 +3,13 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from unittest.mock import Mock
 
 import nfc_hub.core.auth_service as service_module
 from nfc_hub.core.auth_service import (
     EmailAlreadyRegisteredError,
+    InvalidCredentialsError,
+    authenticate_user,
     register_user,
 )
 from nfc_hub.core.database import Base
@@ -196,3 +199,224 @@ class TestUserRegistration:
         ).scalar_one_or_none()
 
         assert stored_user is None
+
+
+
+class TestUserAuthentication:
+    def test_authenticates_user_with_normalized_email(
+        self,
+        db,
+        monkeypatch,
+    ):
+        user = User(
+            email="user@example.com",
+            password_hash="stored-password-hash",
+        )
+        db.add(user)
+        db.commit()
+
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            lambda password, password_hash: True,
+        )
+        monkeypatch.setattr(
+            service_module,
+            "password_needs_rehash",
+            lambda password_hash: False,
+        )
+
+        authenticated_user = authenticate_user(
+            db,
+            email="  USER@EXAMPLE.COM  ",
+            password="correct-password",
+        )
+
+        assert authenticated_user.id == user.id
+        assert authenticated_user.email == "user@example.com"
+
+
+    def test_rejects_incorrect_password(
+        self,
+        db,
+        monkeypatch,
+    ):
+        user = User(
+            email="user@example.com",
+            password_hash="stored-password-hash",
+        )
+        db.add(user)
+        db.commit()
+
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            lambda password, password_hash: False,
+        )
+
+        with pytest.raises(
+            InvalidCredentialsError,
+            match="Invalid email or password",
+        ):
+            authenticate_user(
+                db,
+                email="user@example.com",
+                password="incorrect-password",
+            )
+
+
+    def test_rejects_unknown_email_with_same_error(
+        self,
+        db,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            lambda password, password_hash: False,
+        )
+
+        with pytest.raises(
+            InvalidCredentialsError,
+            match="Invalid email or password",
+        ):
+            authenticate_user(
+                db,
+                email="unknown@example.com",
+                password="some-password",
+            )
+
+
+    def test_verifies_dummy_hash_for_unknown_email(
+        self,
+        db,
+        monkeypatch,
+    ):
+        received_arguments = []
+
+
+        def fake_verify_password(password, password_hash):
+            received_arguments.append((password, password_hash))
+            return False
+
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            fake_verify_password,
+        )
+
+        with pytest.raises(InvalidCredentialsError):
+            authenticate_user(
+                db,
+                email="unknown@example.com",
+                password="some-password",
+            )
+
+        assert len(received_arguments) == 1
+        assert received_arguments[0][0] == "some-password"
+        assert received_arguments[0][1] == service_module._DUMMY_PASSWORD_HASH
+
+
+    def test_rejects_inactive_user_with_same_error(
+        self,
+        db,
+        monkeypatch,
+    ):
+        user = User(
+            email="user@example.com",
+            password_hash="stored-password-hash",
+            is_active=False,
+        )
+        db.add(user)
+        db.commit()
+
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            lambda password, password_hash: True,
+        )
+
+        with pytest.raises(
+            InvalidCredentialsError,
+            match="Invalid email or password",
+        ):
+            authenticate_user(
+                db,
+                email="user@example.com",
+                password="correct-password",
+            )
+
+    def test_rehashes_password_when_parameters_are_outdated(
+        self,
+        db,
+        monkeypatch,
+    ):
+        user = User(
+            email="user@example.com",
+            password_hash="outdated-password-hash",
+        )
+        db.add(user)
+        db.commit()
+
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            lambda password, password_hash: True,
+        )
+        monkeypatch.setattr(
+            service_module,
+            "password_needs_rehash",
+            lambda password_hash: True,
+        )
+        monkeypatch.setattr(
+            service_module,
+            "hash_password",
+            lambda password: "updated-password-hash",
+        )
+
+        authenticated_user = authenticate_user(
+            db,
+            email="user@example.com",
+            password="correct-password",
+        )
+
+        assert authenticated_user.password_hash == "updated-password-hash"
+
+    def test_keeps_current_password_hash(
+        self,
+        db,
+        monkeypatch,
+    ):
+        user = User(
+            email="user@example.com",
+            password_hash="current-password-hash",
+        )
+        db.add(user)
+        db.commit()
+
+        monkeypatch.setattr(
+            service_module,
+            "verify_password",
+            lambda password, password_hash: True,
+        )
+        monkeypatch.setattr(
+            service_module,
+            "password_needs_rehash",
+            lambda password_hash: False,
+        )
+
+        hash_mock = Mock()
+        monkeypatch.setattr(
+            service_module,
+            "hash_password",
+            hash_mock,
+        )
+
+        authenticated_user = authenticate_user(
+            db,
+            email="user@example.com",
+            password="correct-password",
+        )
+
+        assert authenticated_user.password_hash == "current-password-hash"
+        hash_mock.assert_not_called()
