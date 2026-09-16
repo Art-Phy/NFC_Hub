@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from nfc_hub.models import User
 from nfc_hub.schemas.auth import (
     AuthResponse,
+    LoginRequest,
     RegisterRequest,
     UserResponse,
 )
@@ -130,3 +131,29 @@ class TestAuthResponse:
         )
 
         assert "session_token" not in response.model_dump()
+
+
+
+class TestLoginRequest:
+    def test_accepts_valid_credentials(self):
+        request = LoginRequest(
+            email="user@example.com",
+            password="secure-password",
+        )
+
+        assert request.email == "user@example.com"
+        assert request.password == "secure-password"
+
+    def test_rejects_invalid_email(self):
+        with pytest.raises(ValidationError):
+            LoginRequest(
+                email="invalid-email",
+                password="secure-password",
+            )
+
+    def test_rejects_empty_password(self):
+        with pytest.raises(ValidationError):
+            LoginRequest(
+                email="user@example.com",
+                password="",
+            )

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import nfc_hub.api.auth as auth_api
-from nfc_hub.core.auth_service import EmailAlreadyRegisteredError
+from nfc_hub.core.auth_service import EmailAlreadyRegisteredError, InvalidCredentialsError
 from nfc_hub.core.dependencies import get_db
 from nfc_hub.core.session_service import CreatedSession
 from nfc_hub.main import app
@@ -243,4 +243,176 @@ class TestRegisterEndpoint:
         )
 
         assert response.status_code == 422
+        fake_db.commit.assert_not_called()
+
+
+
+class TestLoginEndpoint:
+    def test_authenticates_user_and_returns_session_data(
+        self,
+        client,
+        fake_db,
+        registered_user,
+        created_session,
+        monkeypatch,
+    ):
+        authenticate_mock = Mock(return_value=registered_user)
+        create_session_mock = Mock(return_value=created_session)
+
+        monkeypatch.setattr(
+            auth_api,
+            "authenticate_user",
+            authenticate_mock,
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "create_session",
+            create_session_mock,
+        )
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "user@example.com",
+                "password": "secure-password",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "user": {
+                "id": 42,
+                "email": "user@example.com",
+            },
+            "csrf_token": "csrf-token",
+        }
+        authenticate_mock.assert_called_once_with(
+            fake_db,
+            email="user@example.com",
+            password="secure-password",
+        )
+        create_session_mock.assert_called_once_with(
+            fake_db,
+            user_id=42,
+        )
+        fake_db.commit.assert_called_once_with()
+        fake_db.refresh.assert_called_once_with(registered_user)
+
+    def test_sets_session_cookie(
+        self,
+        client,
+        registered_user,
+        created_session,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            auth_api,
+            "authenticate_user",
+            Mock(return_value=registered_user),
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "create_session",
+            Mock(return_value=created_session),
+        )
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "user@example.com",
+                "password": "secure-password",
+            },
+        )
+
+        cookie_header = response.headers["set-cookie"]
+
+        assert "nfc_hub_session=raw-session-token" in cookie_header
+        assert "HttpOnly" in cookie_header
+        assert "SameSite=lax" in cookie_header
+        assert "Path=/" in cookie_header
+
+    def test_returns_unauthorized_for_invalid_credentials(
+        self,
+        client,
+        fake_db,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            auth_api,
+            "authenticate_user",
+            Mock(
+                side_effect=InvalidCredentialsError(
+                    "Invalid email or password"
+                )
+            ),
+        )
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "user@example.com",
+                "password": "incorrect-password",
+            },
+        )
+
+        assert response.status_code == 401
+        assert response.json() == {
+            "detail": "Invalid email or password"
+        }
+        fake_db.rollback.assert_called_once_with()
+        fake_db.commit.assert_not_called()
+
+    def test_rolls_back_when_session_creation_fails(
+        self,
+        client,
+        fake_db,
+        registered_user,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            auth_api,
+            "authenticate_user",
+            Mock(return_value=registered_user),
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "create_session",
+            Mock(side_effect=RuntimeError("database failure")),
+        )
+
+        with pytest.raises(RuntimeError, match="database failure"):
+            client.post(
+                "/auth/login",
+                json={
+                    "email": "user@example.com",
+                    "password": "secure-password",
+                },
+            )
+
+        fake_db.rollback.assert_called_once_with()
+        fake_db.commit.assert_not_called()
+
+    def test_rejects_invalid_request_before_authentication(
+        self,
+        client,
+        fake_db,
+        monkeypatch,
+    ):
+        authenticate_mock = Mock()
+        monkeypatch.setattr(
+            auth_api,
+            "authenticate_user",
+            authenticate_mock,
+        )
+
+        response = client.post(
+            "/auth/login",
+            json={
+                "email": "invalid-email",
+                "password": "",
+            },
+        )
+
+        assert response.status_code == 422
+        authenticate_mock.assert_not_called()
         fake_db.commit.assert_not_called()

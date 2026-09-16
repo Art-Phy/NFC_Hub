@@ -13,6 +13,14 @@ class RegisterRequest(BaseModel):
 
 
 
+class LoginRequest(BaseModel):
+    """Credentials required to authenticate a user"""
+
+    email: EmailStr = Field(max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
+
 class UserResponse(BaseModel):
     """Public representation of an authenticated user"""
 

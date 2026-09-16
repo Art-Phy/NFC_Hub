@@ -7,13 +7,17 @@ from sqlalchemy.orm import Session as DatabaseSession
 
 from nfc_hub.core.auth_service import (
     EmailAlreadyRegisteredError,
+    InvalidCredentialsError,
+    authenticate_user,
     register_user,
 )
+
 from nfc_hub.core.dependencies import get_db
 from nfc_hub.core.session_service import create_session
 from nfc_hub.core.settings import get_settings
 from nfc_hub.schemas.auth import (
     AuthResponse,
+    LoginRequest,
     RegisterRequest,
     UserResponse,
 )
@@ -22,11 +26,31 @@ from nfc_hub.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
+def _set_session_cookie(
+    response: Response,
+    session_token: str,
+) -> None:
+    """Store a session token in a secure HTTP-only cookie"""
+
+    settings = get_settings()
+
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=session_token,
+        max_age=settings.authenticated_session_ttl_seconds,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
 @router.post(
     "/register",
     response_model=AuthResponse,
     status_code=status.HTTP_201_CREATED,
 )
+
 def register(
     payload: RegisterRequest,
     response: Response,
@@ -58,16 +82,56 @@ def register(
         db.rollback()
         raise
 
-    settings = get_settings()
+    _set_session_cookie(
+        response,
+        created_session.session_token,
+    )
 
-    response.set_cookie(
-        key=settings.session_cookie_name,
-        value=created_session.session_token,
-        max_age=settings.authenticated_session_ttl_seconds,
-        httponly=True,
-        secure=settings.session_cookie_secure,
-        samesite="lax",
-        path="/",
+    return AuthResponse(
+        user=UserResponse.model_validate(user),
+        csrf_token=created_session.csrf_token,
+    )
+
+
+@router.post(
+    "/login",
+    response_model=AuthResponse,
+    status_code=status.HTTP_200_OK,
+)
+def login(
+    payload: LoginRequest,
+    response: Response,
+    db: DatabaseSession = Depends(get_db),
+) -> AuthResponse:
+    """Authenticate a user and create a new session"""
+
+    try:
+        user = authenticate_user(
+            db,
+            email=str(payload.email),
+            password=payload.password,
+        )
+    except InvalidCredentialsError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        ) from exc
+
+    try:
+        created_session = create_session(
+            db,
+            user_id=user.id,
+        )
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        raise
+
+    _set_session_cookie(
+        response,
+        created_session.session_token,
     )
 
     return AuthResponse(
