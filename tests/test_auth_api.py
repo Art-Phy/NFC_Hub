@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import nfc_hub.api.auth as auth_api
 from nfc_hub.core.auth_service import EmailAlreadyRegisteredError, InvalidCredentialsError
-from nfc_hub.core.dependencies import get_db
+from nfc_hub.core.dependencies import get_db, require_csrf_token, require_session
 from nfc_hub.core.session_service import CreatedSession
 from nfc_hub.main import app
 from nfc_hub.models import Session, User
@@ -415,4 +415,125 @@ class TestLoginEndpoint:
 
         assert response.status_code == 422
         authenticate_mock.assert_not_called()
+        fake_db.commit.assert_not_called()
+
+
+
+class TestLogoutEndpoint:
+    def test_deletes_current_session(
+        self,
+        client,
+        fake_db,
+        created_session,
+        monkeypatch,
+    ):
+        delete_session_mock = Mock(return_value=True)
+
+        app.dependency_overrides[require_csrf_token] = (
+            lambda: created_session.session
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "delete_session",
+            delete_session_mock,
+        )
+        client.cookies.set(
+            "nfc_hub_session",
+            "raw-session-token",
+        )
+
+        response = client.post("/auth/logout")
+
+        assert response.status_code == 204
+        assert response.content == b""
+        delete_session_mock.assert_called_once_with(
+            fake_db,
+            "raw-session-token",
+        )
+        fake_db.commit.assert_called_once_with()
+        fake_db.rollback.assert_not_called()
+
+    def test_removes_session_cookie(
+        self,
+        client,
+        created_session,
+        monkeypatch,
+    ):
+        app.dependency_overrides[require_csrf_token] = (
+            lambda: created_session.session
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "delete_session",
+            Mock(return_value=True),
+        )
+        client.cookies.set(
+            "nfc_hub_session",
+            "raw-session-token",
+        )
+
+        response = client.post("/auth/logout")
+
+        cookie_header = response.headers["set-cookie"]
+
+        assert "nfc_hub_session=" in cookie_header
+        assert "Max-Age=0" in cookie_header
+        assert "HttpOnly" in cookie_header
+        assert "SameSite=lax" in cookie_header
+        assert "Path=/" in cookie_header
+
+    def test_requires_csrf_token(
+        self,
+        client,
+        fake_db,
+        created_session,
+        monkeypatch,
+    ):
+        app.dependency_overrides[require_session] = (
+            lambda: created_session.session
+        )
+        delete_session_mock = Mock(return_value=True)
+        monkeypatch.setattr(
+            auth_api,
+            "delete_session",
+            delete_session_mock,
+        )
+        client.cookies.set(
+            "nfc_hub_session",
+            "raw-session-token",
+        )
+
+        response = client.post("/auth/logout")
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "detail": "Invalid CSRF token"
+        }
+        delete_session_mock.assert_not_called()
+        fake_db.commit.assert_not_called()
+
+    def test_rolls_back_when_session_deletion_fails(
+        self,
+        client,
+        fake_db,
+        created_session,
+        monkeypatch,
+    ):
+        app.dependency_overrides[require_csrf_token] = (
+            lambda: created_session.session
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "delete_session",
+            Mock(side_effect=RuntimeError("database failure")),
+        )
+        client.cookies.set(
+            "nfc_hub_session",
+            "raw-session-token",
+        )
+
+        with pytest.raises(RuntimeError, match="database failure"):
+            client.post("/auth/logout")
+
+        fake_db.rollback.assert_called_once_with()
         fake_db.commit.assert_not_called()

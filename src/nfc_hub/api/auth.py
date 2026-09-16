@@ -1,7 +1,7 @@
 
 """Authentication API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DatabaseSession
 
@@ -12,8 +12,9 @@ from nfc_hub.core.auth_service import (
     register_user,
 )
 
-from nfc_hub.core.dependencies import get_db
-from nfc_hub.core.session_service import create_session
+from nfc_hub.core.dependencies import get_db, require_csrf_token
+from nfc_hub.core.session_service import create_session, delete_session
+from nfc_hub.models.session import Session as SessionModel
 from nfc_hub.core.settings import get_settings
 from nfc_hub.schemas.auth import (
     AuthResponse,
@@ -43,6 +44,22 @@ def _set_session_cookie(
         samesite="lax",
         path="/",
     )
+
+
+
+def _clear_session_cookie(response: Response) -> None:
+    """Remove the session cookie from the client"""
+
+    settings = get_settings()
+
+    response.delete_cookie(
+        key=settings.session_cookie_name,
+        path="/",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+
 
 
 @router.post(
@@ -138,3 +155,35 @@ def login(
         user=UserResponse.model_validate(user),
         csrf_token=created_session.csrf_token,
     )
+
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def logout(
+    request: Request,
+    response: Response,
+    _current_session: SessionModel = Depends(require_csrf_token),
+    db: DatabaseSession = Depends(get_db),
+) -> None:
+    """Revoke the current session and remove its cookie"""
+
+    settings = get_settings()
+    session_token = request.cookies.get(settings.session_cookie_name)
+
+    if session_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Valid session required",
+        )
+
+    try:
+        delete_session(db, session_token)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    _clear_session_cookie(response)
