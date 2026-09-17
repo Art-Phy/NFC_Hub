@@ -35,6 +35,7 @@ def _set_session_cookie(
     """Store a session token in a secure HTTP-only cookie"""
 
     settings = get_settings()
+    response.headers["Cache-Control"] = "no-store"
 
     response.set_cookie(
         key=settings.session_cookie_name,
@@ -52,6 +53,7 @@ def _clear_session_cookie(response: Response) -> None:
     """Remove the session cookie from the client"""
 
     settings = get_settings()
+    response.headers["Cache-Control"] = "no-store"
 
     response.delete_cookie(
         key=settings.session_cookie_name,

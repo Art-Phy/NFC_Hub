@@ -86,6 +86,7 @@ class TestRegisterEndpoint:
         )
 
         assert response.status_code == 201
+        assert response.headers["cache-control"] == "no-store"
         assert response.json() == {
             "user": {
                 "id": 42,
@@ -279,6 +280,7 @@ class TestLoginEndpoint:
         )
 
         assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
         assert response.json() == {
             "user": {
                 "id": 42,
@@ -445,6 +447,7 @@ class TestLogoutEndpoint:
         response = client.post("/auth/logout")
 
         assert response.status_code == 204
+        assert response.headers["cache-control"] == "no-store"
         assert response.content == b""
         delete_session_mock.assert_called_once_with(
             fake_db,

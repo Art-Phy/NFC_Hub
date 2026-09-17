@@ -2,7 +2,7 @@
 from functools import lru_cache
 from importlib.metadata import version as pkg_version
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,8 +16,14 @@ class AppSettings(BaseSettings):
 
     session_cookie_name: str = "nfc_hub_session"
     session_cookie_secure: bool = False
-    authenticated_session_ttl_seconds: int = 2_592_000
-    anonymous_session_ttl_seconds: int = 900
+    authenticated_session_ttl_seconds: int = Field (
+        default=2_592_000,
+        gt=0,
+        )
+    anonymous_session_ttl_seconds: int = Field(
+        default=900,
+        gt=0,
+        )
 
     @model_validator(mode="after")
     def validate_production_cookie_security(self) -> "AppSettings":

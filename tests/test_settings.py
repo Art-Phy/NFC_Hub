@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from nfc_hub.core.settings import get_settings
+from nfc_hub.core.settings import get_settings, AppSettings
 
 
 class TestDefaults:
@@ -152,3 +152,30 @@ class TestDatabaseUrl:
         settings = get_settings()
 
         assert settings.database_url == "sqlite:///./custom.db"
+
+
+
+class TestSessionTtlValidation:
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "authenticated_session_ttl_seconds",
+            "anonymous_session_ttl_seconds",
+        ],
+    )
+    @pytest.mark.parametrize("ttl", [0, -1])
+    def test_rejects_non_positive_ttl(self, field_name, ttl):
+        with pytest.raises(ValidationError):
+            AppSettings(**{field_name: ttl})
+
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "authenticated_session_ttl_seconds",
+            "anonymous_session_ttl_seconds",
+        ],
+    )
+    def test_accepts_positive_ttl(self, field_name):
+        settings = AppSettings(**{field_name: 1})
+
+        assert getattr(settings, field_name) == 1
