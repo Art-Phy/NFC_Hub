@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import nfc_hub.api.auth as auth_api
 from nfc_hub.core.auth_service import EmailAlreadyRegisteredError, InvalidCredentialsError
-from nfc_hub.core.dependencies import get_db, require_csrf_token, require_session
+from nfc_hub.core.dependencies import get_db, require_csrf_token, require_session, require_authenticated_user
 from nfc_hub.core.session_service import CreatedSession
 from nfc_hub.main import app
 from nfc_hub.models import Session, User
@@ -537,3 +537,101 @@ class TestLogoutEndpoint:
 
         fake_db.rollback.assert_called_once_with()
         fake_db.commit.assert_not_called()
+
+
+
+class TestCurrentUserEndpoint:
+    def test_returns_authenticated_user_and_csrf_token(
+        self,
+        client,
+        fake_db,
+        registered_user,
+        created_session,
+    ):
+        app.dependency_overrides[require_authenticated_user] = (
+            lambda: registered_user
+        )
+        app.dependency_overrides[require_session] = (
+            lambda: created_session.session
+        )
+
+        response = client.get("/auth/me")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "user": {
+                "id": 42,
+                "email": "user@example.com",
+            },
+            "csrf_token": "csrf-token",
+        }
+        assert response.headers["cache-control"] == "no-store"
+        fake_db.commit.assert_not_called()
+
+    def test_rejects_request_without_session(self, client):
+        response = client.get("/auth/me")
+
+        assert response.status_code == 401
+        assert response.json() == {
+            "detail": "Valid session required"
+        }
+
+    def test_rejects_anonymous_session(
+        self,
+        client,
+    ):
+        anonymous_session = Session(
+            id=8,
+            token_hash="b" * 64,
+            csrf_token="anonymous-csrf-token",
+            user_id=None,
+        )
+        app.dependency_overrides[require_session] = (
+            lambda: anonymous_session
+        )
+
+        response = client.get("/auth/me")
+
+        assert response.status_code == 401
+        assert response.json() == {
+            "detail": "Authentication required"
+        }
+
+    def test_rejects_inactive_user(
+        self,
+        client,
+        registered_user,
+        created_session,
+    ):
+        registered_user.is_active = False
+        created_session.session.user = registered_user
+
+        app.dependency_overrides[require_session] = (
+            lambda: created_session.session
+        )
+
+        response = client.get("/auth/me")
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "detail": "User account is inactive"
+        }
+
+    def test_does_not_expose_session_token_or_password_hash(
+        self,
+        client,
+        registered_user,
+        created_session,
+    ):
+        app.dependency_overrides[require_authenticated_user] = (
+            lambda: registered_user
+        )
+        app.dependency_overrides[require_session] = (
+            lambda: created_session.session
+        )
+
+        response = client.get("/auth/me")
+
+        assert response.status_code == 200
+        assert "raw-session-token" not in response.text
+        assert "password_hash" not in response.json()["user"]

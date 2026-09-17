@@ -12,7 +12,8 @@ from nfc_hub.core.auth_service import (
     register_user,
 )
 
-from nfc_hub.core.dependencies import get_db, require_csrf_token
+from nfc_hub.models.user import User
+from nfc_hub.core.dependencies import get_db, require_authenticated_user, require_csrf_token, require_session
 from nfc_hub.core.session_service import create_session, delete_session
 from nfc_hub.models.session import Session as SessionModel
 from nfc_hub.core.settings import get_settings
@@ -187,3 +188,24 @@ def logout(
         raise
 
     _clear_session_cookie(response)
+
+
+
+
+@router.get(
+    "/me",
+    response_model=AuthResponse,
+)
+def me(
+    response: Response,
+    user: User = Depends(require_authenticated_user),
+    current_session: SessionModel = Depends(require_session),
+) -> AuthResponse:
+    """Return the authenticated user and current session CSRF token"""
+
+    response.headers["Cache-Control"] = "no-store"
+
+    return AuthResponse(
+        user=UserResponse.model_validate(user),
+        csrf_token=current_session.csrf_token,
+    )
