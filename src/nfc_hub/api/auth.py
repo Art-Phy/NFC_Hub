@@ -12,7 +12,7 @@ from nfc_hub.core.auth_service import (
 )
 
 from nfc_hub.models.user import User
-from nfc_hub.core.dependencies import get_db, require_authenticated_user, require_csrf_token, require_session
+from nfc_hub.core.dependencies import get_db, require_authenticated_user, require_csrf_token, require_safe_auth_request, require_session
 from nfc_hub.core.session_service import create_session, delete_session
 from nfc_hub.models.session import Session as SessionModel
 from nfc_hub.core.settings import get_settings
@@ -68,6 +68,7 @@ def _clear_session_cookie(response: Response) -> None:
     "/register",
     response_model=AuthResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_safe_auth_request)],
 )
 
 def register(
@@ -119,6 +120,7 @@ def register(
     "/login",
     response_model=AuthResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_safe_auth_request)],
 )
 def login(
     payload: LoginRequest,

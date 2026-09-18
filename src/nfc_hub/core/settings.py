@@ -13,6 +13,12 @@ class AppSettings(BaseSettings):
     environment: str = "development"
     debug: bool = False
     database_url: str = "sqlite:///./nfc_hub.db"
+    auth_allowed_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ],
+    )
 
     session_cookie_name: str = "nfc_hub_session"
     session_cookie_secure: bool = False

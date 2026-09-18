@@ -2,11 +2,11 @@
 from unittest.mock import Mock
 
 import pytest
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 import nfc_hub.core.dependencies as dependencies_module
-from nfc_hub.core.dependencies import get_current_session, get_db, require_authenticated_user, require_session, require_csrf_token
+from nfc_hub.core.dependencies import get_current_session, get_db, require_authenticated_user, require_session, require_csrf_token, require_safe_auth_request
 from nfc_hub.core.settings import AppSettings
 from nfc_hub.models import Session, User
 
@@ -356,3 +356,92 @@ class TestCsrfProtection:
 
         assert response.status_code == 200
         assert response.json() == {"session_id": 42}
+
+
+
+def make_auth_request(headers: dict[str, str]) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "headers": [
+                (name.lower().encode("ascii"), value.encode("ascii"))
+                for name, value in headers.items()
+            ],
+        }
+    )
+
+
+class TestSafeAuthRequest:
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            {"Content-Type": "application/json"},
+            {
+                "Content-Type": "application/json",
+                "Origin": "http://localhost:8000",
+            },
+            {
+                "Content-Type": "application/json; charset=utf-8",
+                "Origin": "http://localhost:8000",
+            },
+        ],
+    )
+    def test_accepts_safe_request(self, headers, monkeypatch):
+        monkeypatch.setattr(
+            dependencies_module,
+            "get_settings",
+            lambda: AppSettings(
+                auth_allowed_origins=["http://localhost:8000"],
+            ),
+        )
+
+        request = make_auth_request(headers)
+
+        assert require_safe_auth_request(request) is None
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "https://evil.example",
+            "null",
+            "http://localhost:8000.evil.example",
+        ],
+    )
+    def test_rejects_untrusted_origin(self, origin, monkeypatch):
+        monkeypatch.setattr(
+            dependencies_module,
+            "get_settings",
+            lambda: AppSettings(
+                auth_allowed_origins=["http://localhost:8000"],
+            ),
+        )
+        request = make_auth_request(
+            {
+                "Content-Type": "application/json",
+                "Origin": origin,
+            }
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_safe_auth_request(request)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail == "Untrusted request origin"
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            "",
+            "text/plain",
+            "application/x-www-form-urlencoded",
+        ],
+    )
+    def test_rejects_non_json_content_type(self, content_type):
+        request = make_auth_request(
+            {"Content-Type": content_type}
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_safe_auth_request(request)
+
+        assert exc_info.value.status_code == 415

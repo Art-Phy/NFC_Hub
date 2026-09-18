@@ -96,3 +96,31 @@ def require_csrf_token(
         )
 
     return current_session
+
+
+
+def require_safe_auth_request(request: Request) -> None:
+    """Require JSON and reject untrusted authentication origins."""
+
+    content_type = request.headers.get("content-type", "")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+
+    if media_type != "application/json":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Content-Type must be application/json",
+        )
+
+    origin = request.headers.get("origin")
+
+    if origin is not None:
+        settings = get_settings()
+
+        if (
+            origin == "null"
+            or origin not in settings.auth_allowed_origins
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Untrusted request origin",
+            )

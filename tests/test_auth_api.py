@@ -669,3 +669,48 @@ class TestCurrentUserEndpoint:
         assert response.status_code == 200
         assert "raw-session-token" not in response.text
         assert "password_hash" not in response.json()["user"]
+
+
+
+class TestAuthOriginProtection:
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["/auth/register", "/auth/login"],
+    )
+    def test_rejects_untrusted_origin_before_calling_services(
+        self,
+        client,
+        fake_db,
+        monkeypatch,
+        endpoint,
+    ):
+        register_mock = Mock()
+        authenticate_mock = Mock()
+
+        monkeypatch.setattr(
+            auth_api,
+            "register_user",
+            register_mock,
+        )
+        monkeypatch.setattr(
+            auth_api,
+            "authenticate_user",
+            authenticate_mock,
+        )
+
+        response = client.post(
+            endpoint,
+            json={
+                "email": "user@example.com",
+                "password": "secure-password",
+            },
+            headers={"Origin": "https://evil.example"},
+        )
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "detail": "Untrusted request origin"
+        }
+        register_mock.assert_not_called()
+        authenticate_mock.assert_not_called()
+        fake_db.commit.assert_not_called()
