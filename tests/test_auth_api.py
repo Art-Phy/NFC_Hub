@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 import nfc_hub.api.auth as auth_api
 from nfc_hub.core.auth_service import EmailAlreadyRegisteredError, InvalidCredentialsError
@@ -246,6 +247,36 @@ class TestRegisterEndpoint:
         assert response.status_code == 422
         fake_db.commit.assert_not_called()
 
+    def test_preserves_unexpected_integrity_error(
+        self,
+        client,
+        fake_db,
+     monkeypatch,
+    ):
+        database_error = IntegrityError(
+            "INSERT INTO users",
+            {},
+            RuntimeError("unexpected integrity failure"),
+        )
+
+        monkeypatch.setattr(
+            auth_api,
+            "register_user",
+            Mock(side_effect=database_error),
+        )
+
+        with pytest.raises(IntegrityError) as exc_info:
+            client.post(
+                "/auth/register",
+                json={
+                    "email": "user@example.com",
+                    "password": "secure-password",
+                },
+            )
+
+        assert exc_info.value is database_error
+        fake_db.rollback.assert_called_once_with()
+        fake_db.commit.assert_not_called()
 
 
 class TestLoginEndpoint:

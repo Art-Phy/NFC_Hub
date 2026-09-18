@@ -1,8 +1,10 @@
 
 """User registration and authentication services"""
+from sqlite3 import IntegrityError as SQLiteIntegrityError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DatabaseSession
+from sqlalchemy.exc import IntegrityError
 
 from nfc_hub.core.passwords import hash_password, password_needs_rehash, verify_password
 from nfc_hub.models.user import User
@@ -56,7 +58,19 @@ def register_user(
     )
 
     db.add(user)
-    db.flush()
+
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        if (
+            isinstance(exc.orig, SQLiteIntegrityError)
+            and str(exc.orig) == "UNIQUE constraint failed: users.email"
+        ):
+            raise EmailAlreadyRegisteredError(
+                "Email address is already registered"
+            ) from exc
+
+        raise
 
     return user
 

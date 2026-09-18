@@ -3,6 +3,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.exc import IntegrityError
 from unittest.mock import Mock
 
 import nfc_hub.core.auth_service as service_module
@@ -420,3 +421,75 @@ class TestUserAuthentication:
 
         assert authenticated_user.password_hash == "current-password-hash"
         hash_mock.assert_not_called()
+
+
+
+class TestRegistrationIntegrityErrors:
+    def test_translates_email_unique_violation(
+        self,
+        db,
+        monkeypatch,
+    ):
+        db.add(
+            User(
+                email="user@example.com",
+                password_hash="existing-password-hash",
+            )
+        )
+        db.commit()
+
+        monkeypatch.setattr(
+            service_module,
+            "hash_password",
+            lambda password: "generated-password-hash",
+        )
+
+        # Simulate a pre-check that did not see the existing user.
+        query_result = Mock()
+        query_result.scalar_one_or_none.return_value = None
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                db,
+                "execute",
+                Mock(return_value=query_result),
+            )
+
+            with pytest.raises(EmailAlreadyRegisteredError) as exc_info:
+                register_user(
+                    db,
+                    email="user@example.com",
+                    password="secure-password",
+                )
+
+        assert isinstance(exc_info.value.__cause__, IntegrityError)
+
+        # The caller remains responsible for restoring the transaction.
+        db.rollback()
+
+        users = db.execute(select(User)).scalars().all()
+
+        assert len(users) == 1
+
+    def test_preserves_non_email_integrity_error(
+        self,
+        db,
+        monkeypatch,
+    ):
+        # Force a real NOT NULL violation instead of an email conflict.
+        monkeypatch.setattr(
+            service_module,
+            "hash_password",
+            lambda password: None,
+        )
+
+        with pytest.raises(IntegrityError):
+            register_user(
+                db,
+                email="user@example.com",
+                password="secure-password",
+            )
+
+        db.rollback()
+
+        assert db.execute(select(User)).scalar_one_or_none() is None

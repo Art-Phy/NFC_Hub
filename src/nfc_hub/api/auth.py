@@ -2,7 +2,6 @@
 """Authentication API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DatabaseSession
 
 from nfc_hub.core.auth_service import (
@@ -84,12 +83,15 @@ def register(
             email=str(payload.email),
             password=payload.password,
         )
-    except (EmailAlreadyRegisteredError, IntegrityError) as exc:
+    except EmailAlreadyRegisteredError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email address is already registered",
         ) from exc
+    except Exception:
+        db.rollback()
+        raise
 
     try:
         created_session = create_session(
