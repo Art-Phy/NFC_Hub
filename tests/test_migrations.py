@@ -50,6 +50,58 @@ class TestUpgrade:
         finally:
             engine.dispose()
 
+
+    def test_creates_sessions_table(self, alembic_config):
+        config, database_url = alembic_config
+        command.upgrade(config, "head")
+        engine = create_engine(database_url)
+
+        try:
+            inspector = inspect(engine)
+
+            assert "sessions" in inspector.get_table_names()
+
+            columns = {
+                column["name"]: column
+                for column in inspector.get_columns("sessions")
+            }
+
+            assert set(columns) == {
+                "id",
+                "token_hash",
+                "csrf_token",
+                "user_id",
+                "created_at",
+                "expires_at",
+            }
+            assert columns["token_hash"]["nullable"] is False
+            assert columns["csrf_token"]["nullable"] is False
+            assert columns["user_id"]["nullable"] is True
+            assert columns["created_at"]["nullable"] is False
+            assert columns["expires_at"]["nullable"] is False
+
+            indexes = {
+                index["name"]: index
+                for index in inspector.get_indexes("sessions")
+            }
+
+            assert indexes["ix_sessions_token_hash"]["unique"]
+            assert not indexes["ix_sessions_user_id"]["unique"]
+
+            foreign_keys = inspector.get_foreign_keys("sessions")
+            user_foreign_key = next(
+                foreign_key
+                for foreign_key in foreign_keys
+                if foreign_key["constrained_columns"] == ["user_id"]
+            )
+
+            assert user_foreign_key["referred_table"] == "users"
+            assert user_foreign_key["referred_columns"] == ["id"]
+            assert user_foreign_key["options"]["ondelete"] == "CASCADE"
+        finally:
+            engine.dispose()
+
+
     def test_insert_uses_database_defaults_and_rejects_exact_duplicate(
         self, alembic_config
     ):
@@ -111,8 +163,65 @@ class TestDowngrade:
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         engine = create_engine(database_url)
+
         try:
-            assert "users" in inspect(engine).get_table_names()
+            table_names = inspect(engine).get_table_names()
+
+            assert "users" in table_names
+            assert "sessions" in table_names
+        finally:
+            engine.dispose()
+
+
+    def test_sessions_use_database_defaults_and_reject_duplicate_token(
+        self, alembic_config
+):
+        config, database_url = alembic_config
+        command.upgrade(config, "head")
+        engine = create_engine(database_url)
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO sessions "
+                        "(token_hash, csrf_token, expires_at) "
+                        "VALUES (:token_hash, :csrf_token, :expires_at)"
+                    ),
+                    {
+                        "token_hash": "a" * 64,
+                        "csrf_token": "csrf-token",
+                        "expires_at": "2026-08-12 13:00:00",
+                    },
+                )
+
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text(
+                        "SELECT user_id, created_at "
+                        "FROM sessions "
+                        "WHERE token_hash = :token_hash"
+                    ),
+                    {"token_hash": "a" * 64},
+                ).one()
+
+            assert row.user_id is None
+            assert row.created_at is not None
+
+            with pytest.raises(IntegrityError):
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "INSERT INTO sessions "
+                            "(token_hash, csrf_token, expires_at) "
+                            "VALUES (:token_hash, :csrf_token, :expires_at)"
+                        ),
+                        {
+                            "token_hash": "a" * 64,
+                            "csrf_token": "different-csrf-token",
+                            "expires_at": "2026-08-12 14:00:00",
+                        },
+                    )
         finally:
             engine.dispose()
 
@@ -122,3 +231,5 @@ class TestAutogenerateConsistency:
         config, _database_url = alembic_config
         command.upgrade(config, "head")
         command.check(config)
+
+

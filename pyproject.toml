@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nfc-hub"
-version = "0.5.0"
+version = "0.6.0"
 description = "Web application for managing reusable NFC tags"
 requires-python = ">=3.10"
 authors = [
@@ -16,6 +16,8 @@ dependencies = [
     "pydantic-settings",
     "sqlalchemy",
     "alembic",
+    "argon2-cffi",
+    "email-validator"
 ]
 
 [project.urls]

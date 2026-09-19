@@ -9,6 +9,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+### [0.6.0] - 2026-09-19
+
+#### Added
+
+- Persistent `Session` model for anonymous and authenticated sessions, with token hashes, CSRF tokens, user associations and expiration times.
+- Alembic migration for the sessions table.
+- Configurable session cookie name, cookie security, session lifetimes and allowed authentication origins.
+- Argon2id password hashing, verification and automatic rehashing of outdated hashes during login.
+- Secure random session and CSRF token generation.
+- SHA-256 hashing of session tokens before database storage.
+- Timing-safe CSRF token comparison.
+- Services for creating, validating, revoking and cleaning up expired sessions.
+- User registration service with email normalization, duplicate detection and password hashing.
+- User authentication service with a shared error for unknown emails, incorrect passwords and inactive accounts.
+- FastAPI dependencies for database sessions, current sessions, authenticated users and CSRF validation.
+- Request and response schemas for registration, login and public user data.
+- `POST /auth/register` to create a user and authenticated session in one transaction.
+- `POST /auth/login` to authenticate a user and create a new session.
+- `POST /auth/logout` to revoke the current session and clear its cookie.
+- `GET /auth/me` to retrieve the authenticated user and current CSRF token.
+- HTTP-only session cookies with `SameSite=lax`, configurable `Secure` and expiration aligned with the authenticated session lifetime.
+- Authentication request checks requiring JSON and validating supplied `Origin` headers against configured origins.
+- Automated unit, API and database-backed integration tests for complete authentication flows.
+
+#### Changed
+
+- Expanded the automated suite from 40 to 199 tests.
+- Restricted session lifetime settings to positive values.
+- Required secure session cookies when the environment is set to production.
+- Added `Cache-Control: no-store` to authentication responses containing session data.
+- Distinguished duplicate email conflicts from unrelated database integrity failures.
+- Updated project dependencies with `argon2-cffi` and `email-validator`.
+- Updated project documentation with authentication setup, API usage and current security scope.
+- Updated the project version to `0.6.0`.
+
+---
+
 ### [0.5.0] - 2026-08-07
 
 #### Added
