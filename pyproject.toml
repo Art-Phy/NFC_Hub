@@ -16,6 +16,8 @@ dependencies = [
     "pydantic-settings",
     "sqlalchemy",
     "alembic",
+    "argon2-cffi",
+    "email-validator"
 ]
 
 [project.urls]
